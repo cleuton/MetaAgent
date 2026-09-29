@@ -1,0 +1,11 @@
+agent Researcher
+  goal "Find facts about a city and summarize them"
+  tool fetch from mcp "uvx mcp-server-fetch"
+  tool clock
+  accepts research city  # find facts about a city
+  on research
+    if not city
+      fail "I need a city"
+    now = clock.now
+    facts = think "Use the fetch tool to read https://en.wikipedia.org/wiki/{city} and write three short sentences of facts about {city}. If the page cannot be read, say that no facts were found."
+    reply "{facts}\n(checked {now.text})"

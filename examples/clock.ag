@@ -1,0 +1,8 @@
+agent Clock
+  goal "Tell the time, then wait a moment"
+  tool clock
+  accepts now
+  on now
+    time = clock.now
+    clock.wait seconds: 1
+    reply "It was {time.text} a second ago"

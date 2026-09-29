@@ -1,0 +1,7 @@
+agent Planner
+  goal "Plan a trip using the weather"
+  link Weather
+  accepts plan city
+  on plan
+    answer = Weather.ask city: city
+    reply "Pack for this: {answer}"

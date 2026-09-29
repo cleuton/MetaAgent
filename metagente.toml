@@ -1,0 +1,15 @@
+# Settings for Metagente. Agents never mention these, so they stay simple.
+
+# Uncomment this section to let agents use `think` (a language model).
+[llm]
+provider = "anthropic"               # or "openai-compatible"
+model = "claude-sonnet-5-5"          # the model name your provider gives you
+api_key_env = "ANTHROPIC_API_KEY"    # the NAME of the variable that holds your key
+
+[runtime]
+timeout_seconds = 30      # how long a tool call may take
+think_max_steps = 10      # how many steps `think` may take
+
+[serve]
+a2a_port = 8080
+bind = "127.0.0.1"        # only this computer; use --public to open up

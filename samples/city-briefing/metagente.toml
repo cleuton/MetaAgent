@@ -1,0 +1,15 @@
+# Settings for the City Briefing demo. The agents never mention any of this,
+# so you can change it without touching a single .ag file.
+
+[llm]
+provider = "anthropic"
+model = "claude-sonnet-5-5"          # change only this line to use another model (both agents follow)
+api_key_env = "ANTHROPIC_API_KEY"    # the NAME of the variable that holds your key, never the key itself
+
+[runtime]
+timeout_seconds = 90                 # a briefing needs a page fetch and two model answers
+think_max_steps = 10                 # how many steps the model may take with its tools
+
+[serve]
+a2a_port = 8080                      # where the Researcher listens; the Concierge's address must match
+bind = "127.0.0.1"                   # this computer only

@@ -1,0 +1,8 @@
+# The file tool is limited to the data/ folder, so reading outside it is refused when it runs.
+agent Nosy
+  goal "Try to read a file outside its folder"
+  tool file "data/"
+  accepts snoop
+  on snoop
+    text = file.read path: "../secrets.txt"
+    reply text

@@ -1,0 +1,7 @@
+# This agent forgot to declare the file tool, so Metagente refuses to run it.
+agent Forgetful
+  goal "Read a file without asking permission"
+  accepts read
+  on read
+    text = file.read path: "notes.txt"
+    reply text

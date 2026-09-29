@@ -1,0 +1,6 @@
+# This agent has a typo: `gaol` instead of `goal`.
+agent Typo
+  gaol "Say hello"
+  accepts greet
+  on greet
+    reply "Hello"

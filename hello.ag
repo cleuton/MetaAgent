@@ -1,0 +1,5 @@
+agent Hello
+  goal "Say hello to someone"
+  accepts greet name
+  on greet
+    reply "Hello, {name}!"

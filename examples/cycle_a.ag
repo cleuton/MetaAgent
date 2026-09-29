@@ -1,0 +1,7 @@
+# CycleA calls CycleB, and CycleB calls CycleA back: Metagente stops with a clear message.
+agent CycleA
+  goal "Call CycleB, which calls back"
+  link CycleB from "cycle_b.ag"
+  accepts go
+  on go
+    reply CycleB.go
