@@ -1,5 +1,7 @@
 # Metagente
 
+![](logo.jpg)
+
 **Version: v0.1.0**
 
 Metagente is an interpreted fourth generation language (4GL) for building AI agents in minutes, with
@@ -41,6 +43,12 @@ target/release/metagente run hello.ag greet name=World
 | Dynamic link | Agents calling agents by name or path, interface checks, cycle detection (user story 4) | Built |
 | v1.0 | MCP server, A2A Agent Card, receive and send A2A tasks, local-only `serve` (user story 5) | Built; waiting for a first-time-user session (SC-001) and a tagged release |
 | Later | Long running tasks with later result checks, authentication for served agents, central agent registry, scheduling, A2A streaming, `ListTasks` and `CancelTask` | Ideas, each needs its own spec |
+
+**Project Barracuda:**
+
+The next major milestone is to create an agent server that can be invoked via A2A or even through a frontend, and that also integrates with a queue for batch triggering.
+
+**A great sample:**
 
 A sample that puts it together, [City Briefing](samples/city-briefing/README.md), shows a Concierge agent
 asking a Researcher agent over A2A while the Researcher reads a page through an MCP tool, both using Claude

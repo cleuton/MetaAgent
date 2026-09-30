@@ -1,0 +1,24 @@
+name: grammar-check
+
+# The constitution says a change to the language grammar must update the parser, at least one
+# working example, and the syntax documentation together. This fails a pull request that touches
+# the language front end (src/lang/) without touching examples/ and docs/syntax.md as well.
+
+on:
+  pull_request:
+
+jobs:
+  grammar-change-comes-with-example-and-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check that grammar changes come with an example and documentation
+        run: |
+          changed=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          echo "$changed"
+          if echo "$changed" | grep -q '^src/lang/\(lexer\|parser\|ast\)\.rs$'; then
+            echo "$changed" | grep -q '^examples/' || { echo "Grammar changed but no file in examples/ changed."; exit 1; }
+            echo "$changed" | grep -q '^docs/syntax.md$' || { echo "Grammar changed but docs/syntax.md did not."; exit 1; }
+          fi

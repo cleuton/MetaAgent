@@ -1,0 +1,61 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }} && rustup default stable
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install the independent A2A client used by the interop test
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 -m venv .interop && .interop/bin/pip install a2a-sdk
+      - name: Test
+        run: cargo test --target ${{ matrix.target }}
+        env:
+          METAGENTE_INTEROP_PYTHON: ${{ github.workspace }}/.interop/bin/python
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Only system libraries are needed (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          file target/${{ matrix.target }}/release/metagente | tee /dev/stderr | grep -q "statically linked"
+      - name: Only system libraries are needed (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          otool -L target/${{ matrix.target }}/release/metagente | tail -n +2 | awk '{print $1}' | tee /dev/stderr \
+            | grep -v -E '^(/usr/lib/|/System/Library/)' && { echo "unexpected library"; exit 1; } || true
+      - name: Set up the Windows developer tools
+        if: matrix.os == 'windows-latest'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Only system libraries are needed (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          dumpbin //dependents target/${{ matrix.target }}/release/metagente.exe | tee /dev/stderr \
+            | grep -i -E '\.dll' | grep -i -v -E '^\s*(kernel32|ntdll|advapi32|bcrypt|crypt32|user32|ws2_32|userenv|secur32|ncrypt|api-ms-win-[a-z0-9-]+|msvcrt|vcruntime[0-9]*|ucrtbase|iphlpapi|dbghelp|shell32|ole32|oleaut32|rpcrt4|winhttp|mswsock|ntdll)\.dll' && { echo "unexpected DLL"; exit 1; } || true
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: metagente-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/metagente
+            target/${{ matrix.target }}/release/metagente.exe
+          if-no-files-found: ignore
