@@ -4,7 +4,7 @@ All notable changes to Metagente are recorded here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v0.1.1 - 2026-10-02
 
 The interpreter now exists. Everything in the specification is implemented and tested.
 
@@ -21,6 +21,7 @@ The interpreter now exists. Everything in the specification is implemented and t
 - Tutorial, syntax reference, examples, and CI for Linux, macOS and Windows.
 - Sample `samples/city-briefing`: a Concierge and a Researcher agent that work together over A2A and MCP
   with Claude Sonnet 5.5, with its own `metagente.toml` and README, and an offline test.
+- Distribution as a zip for Linux AMD64, and instructions in the README to build the Windows and macOS zips.
 
 ## v0.1.0 - 2026-09-29
 
