@@ -1,0 +1,11 @@
+agent Avaliador
+  goal "Compare resume digests with a job description and pick the three best matches"
+  tool fetch from mcp "uvx mcp-server-fetch"
+  accepts rank job candidates  # pick the three best resumes for a job description
+  on rank
+    if not job
+      fail "I need the job description"
+    if not candidates
+      fail "I need the candidates resumes"
+    ranking = think "You are a technical resume evaluator. First, identify up to 3 main technologies in the job description. For each one, use the fetch tool to read its page on English Wikipedia (for example https://en.wikipedia.org/wiki/Apache_Kafka) and confirm what it is and which technologies are equivalent or close to it. If a page does not load, move on without it. Then compare each candidate with the job: required skills weigh more than nice-to-haves; real production experience weighs more than courses, personal projects or keyword lists; an equivalent technology counts only partially. Ignore files that are not resumes or that are unreadable. Reply ONLY with the three best, from best to worst, one per line, in exactly this format:\n1. Candidate name | file-name.ext\n\nJOB:\n{job}\n\nCANDIDATES:\n{candidates}"
+    reply ranking

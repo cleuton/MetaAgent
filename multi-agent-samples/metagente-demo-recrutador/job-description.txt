@@ -1,0 +1,19 @@
+Job: Senior Backend Software Engineer (Rust)
+Company: Lumenfarol Sistemas (fictional company)
+Work model: remote, anywhere in Brazil
+
+About the role
+You will build and operate the services that process events for our delivery platform, on a small, autonomous team.
+
+Required qualifications
+- 4 or more years of experience in backend development.
+- At least 2 years of experience with Rust in production.
+- Experience with REST or gRPC APIs and with PostgreSQL.
+- Experience with messaging (Kafka or RabbitMQ).
+- Docker and Kubernetes in your day-to-day work.
+
+Nice to have
+- Tokio and Axum.
+- Observability (OpenTelemetry, Prometheus).
+- Experience with AWS.
+- English, to read documentation and talk to international teams.

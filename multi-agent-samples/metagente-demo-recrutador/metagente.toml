@@ -1,0 +1,15 @@
+# Configurações da demo Triagem de Currículos. Nenhum arquivo .ag cita provedor, modelo ou chave,
+# então você pode mudar tudo aqui sem tocar nos agentes.
+
+[llm]
+provider = "anthropic"
+model = "claude-sonnet-5-5"          # mude só esta linha para usar outro modelo (os dois agentes que pensam seguem)
+api_key_env = "ANTHROPIC_API_KEY"    # o NOME da variável que guarda a chave, nunca a chave em si
+
+[runtime]
+timeout_seconds = 180                # ler 9 currículos exige vários passos com as ferramentas
+think_max_steps = 30                 # o Leitor usa 1 passo para listar e 1 por arquivo
+
+[serve]
+bind = "127.0.0.1"                   # somente este computador
+# As portas A2A (8081 e 8082) vão na linha de comando de cada 'serve', porque são dois servidores.

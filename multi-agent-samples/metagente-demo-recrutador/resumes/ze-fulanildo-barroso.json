@@ -1,0 +1,95 @@
+{
+  "basics": {
+    "name": "Zé Fulanildo Barroso",
+    "label": "Junior Developer (Rust)",
+    "email": "ze.barroso@example.com",
+    "phone": "(00) 90000-0007",
+    "summary": "Recent graduate looking for a first permanent position. I completed a Rust bootcamp and have personal projects using several modern technologies.",
+    "location": {
+      "city": "Fortaleza",
+      "region": "CE",
+      "countryCode": "BR"
+    }
+  },
+  "work": [
+    {
+      "name": "Casa do Cangaço Software",
+      "position": "Development Intern",
+      "startDate": "2025-02",
+      "endDate": "2026-01",
+      "summary": "One-year internship maintaining an internal inventory system in PHP.",
+      "highlights": [
+        "Bug fixes",
+        "SQL reports"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "institution": "Instituto Politécnico de Itapuã",
+      "area": "Internet Systems Technology",
+      "studyType": "Associate degree",
+      "endDate": "2025"
+    },
+    {
+      "institution": "Bootcamp Ferrugem Acelerada",
+      "area": "Rust from zero to deploy",
+      "studyType": "Open course (120 hours)",
+      "endDate": "2025"
+    }
+  ],
+  "projects": [
+    {
+      "name": "mini-gateway",
+      "description": "Personal project in Rust with Tokio, Axum, PostgreSQL, Kafka, gRPC, Docker and Kubernetes (running only on my laptop with minikube) and OpenTelemetry.",
+      "keywords": [
+        "Rust",
+        "Tokio",
+        "Axum",
+        "PostgreSQL",
+        "Kafka",
+        "gRPC",
+        "Docker",
+        "Kubernetes",
+        "OpenTelemetry"
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "name": "Backend",
+      "level": "beginner",
+      "keywords": [
+        "Rust",
+        "Tokio",
+        "Axum",
+        "PostgreSQL",
+        "Kafka",
+        "RabbitMQ",
+        "gRPC",
+        "REST"
+      ]
+    },
+    {
+      "name": "Infra",
+      "level": "beginner",
+      "keywords": [
+        "Docker",
+        "Kubernetes",
+        "AWS",
+        "Prometheus",
+        "OpenTelemetry"
+      ]
+    }
+  ],
+  "languages": [
+    {
+      "language": "Portuguese",
+      "fluency": "native"
+    },
+    {
+      "language": "English",
+      "fluency": "basic"
+    }
+  ]
+}

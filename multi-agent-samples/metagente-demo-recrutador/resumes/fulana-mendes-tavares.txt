@@ -1,0 +1,36 @@
+=====================================================
+FULANA MENDES TAVARES
+Java Software Architect | Recife, PE
+fulana.tavares@example.com | (00) 90000-0004
+=====================================================
+
+OBJECTIVE
+To work on large-scale backend teams, with a focus on microservices architecture.
+
+PROFESSIONAL EXPERIENCE (12 years)
+
+2019 - present | Software Architect | Banco Frevo Financeiro
+  - Reconciliation platform with Java 17 and Spring Boot, 40 microservices.
+  - Messaging with Apache Kafka (9-broker cluster).
+  - Deployment on Kubernetes (OpenShift), PostgreSQL and Oracle.
+  - Mentored 8 developers.
+
+2014 - 2019 | Senior Developer | Companhia Mangue Beat Sistemas
+  - Billing systems in Java EE, WebLogic and Oracle.
+  - SOAP and REST integrations.
+
+2012 - 2014 | Junior Developer | Casa de Software Capibaribe
+  - Maintenance of Java and JSP applications.
+
+EDUCATION
+  - Bachelor's degree in Information Systems, Universidade Federal do Vale Aurora (2012)
+  - Java SE 11 Programmer certification
+
+SKILLS
+  Java, Spring Boot, Kafka, Kubernetes, PostgreSQL, Oracle, REST, SOAP, Jenkins
+
+OTHER INFORMATION
+  Learning Rust in my spare time (online course in progress, no published projects).
+
+LANGUAGES
+  Portuguese (native), Advanced English

@@ -1,0 +1,13 @@
+agent Recrutador
+  goal "Receive a job description and answer with the three best matching resumes in a folder"
+  remote Leitor at "http://127.0.0.1:8081"
+  remote Avaliador at "http://127.0.0.1:8082"
+  accepts find folder job  # list the three best resumes in a folder for a job description
+  on find
+    if not folder
+      fail "I need the resumes folder name"
+    if not job
+      fail "I need the job description"
+    candidates = Leitor.summarize folder: folder within 240 seconds
+    ranking = Avaliador.rank job: job candidates: candidates within 180 seconds
+    reply "The best 3 candidates for the job:\n{ranking}"
