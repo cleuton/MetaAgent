@@ -1,0 +1,7 @@
+agent Concierge
+  goal "Give a visitor a short briefing about a city"
+  remote Researcher at "http://127.0.0.1:8080"
+  accepts brief city  # a short briefing about a city
+  on brief
+    facts = Researcher.research city: city
+    reply think "Write a friendly briefing of three lines for a visitor to {city}, using only these facts:\n{facts}"

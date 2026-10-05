@@ -1,0 +1,6 @@
+agent Assistant
+  goal "Answer questions"
+  tool file
+  accepts ask question
+  on ask
+    reply think "{question}"

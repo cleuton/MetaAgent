@@ -1,0 +1,6 @@
+agent CycleB
+  goal "Call CycleA, which called me"
+  link CycleA from "cycle_a.ag"
+  accepts go
+  on go
+    reply CycleA.go

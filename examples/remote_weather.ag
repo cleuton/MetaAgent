@@ -1,0 +1,8 @@
+# Calls a Weather agent that is being served elsewhere: metagente serve weather.ag --a2a 8080
+agent Trip
+  goal "Ask a remote weather agent"
+  remote Bob at "http://127.0.0.1:8080"
+  accepts plan city
+  on plan
+    forecast = Bob.ask city: city
+    reply "Bob says: {forecast}"

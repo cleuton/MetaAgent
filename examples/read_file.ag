@@ -1,0 +1,7 @@
+agent Reader
+  goal "Read a file and show what is in it"
+  tool file
+  accepts summarize
+  on summarize
+    text = file.read path: "notes.txt"
+    reply text
