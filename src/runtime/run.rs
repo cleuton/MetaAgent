@@ -6,13 +6,19 @@ use super::interpreter::Agent;
 use super::task::{CallContext, new_task_id};
 use super::value::Value;
 use crate::diagnostics::{Diagnostic, MgResult};
-use crate::lang::{AgentDef, parse_file};
+use crate::lang::{AgentDef, Params, parse_file_with}; // 0.1.2: parse with parameters
 use crate::tools::Args;
 use std::path::Path;
 use std::sync::Arc;
 
 /// Reads and parses a `.ag` file.
 pub fn load_agents(path: &Path) -> MgResult<Vec<Arc<AgentDef>>> {
+    // 0.1.2: no parameters, as in 0.1.1
+    load_agents_with(path, &Params::default())
+}
+
+/// 0.1.2: like `load_agents`; `@parameters.name` takes its value from `params`.
+pub fn load_agents_with(path: &Path, params: &Params) -> MgResult<Vec<Arc<AgentDef>>> {
     let text = std::fs::read_to_string(path).map_err(|e| {
         let why = if e.kind() == std::io::ErrorKind::NotFound {
             "the file does not exist".to_string()
@@ -26,10 +32,12 @@ pub fn load_agents(path: &Path) -> MgResult<Vec<Arc<AgentDef>>> {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    Ok(parse_file(&name, Some(path.to_path_buf()), &text)?
-        .into_iter()
-        .map(Arc::new)
-        .collect())
+    Ok(
+        parse_file_with(&name, Some(path.to_path_buf()), &text, params)?
+            .into_iter()
+            .map(Arc::new)
+            .collect(),
+    )
 }
 
 pub struct RunOptions {
@@ -81,7 +89,7 @@ pub fn build_runtime(start: &Path) -> MgResult<Arc<Runtime>> {
 }
 
 pub async fn run_file(opts: &RunOptions, rt: Arc<Runtime>) -> MgResult<Value> {
-    let agents = load_agents(&opts.file)?;
+    let agents = load_agents_with(&opts.file, &rt.config.parameters)?; // 0.1.2: the project's parameters
     rt.linker.register(&agents);
     let mut problems = crate::lang::check::check_all(&agents);
     problems.extend(crate::link::check::check_links(

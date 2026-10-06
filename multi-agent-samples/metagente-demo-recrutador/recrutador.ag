@@ -1,7 +1,7 @@
 agent Recrutador
   goal "Receive a job description and answer with the three best matching resumes in a folder"
-  remote Leitor at "http://127.0.0.1:8081"
-  remote Avaliador at "http://127.0.0.1:8082"
+  remote Leitor at @parameters.agent_leitor
+  remote Avaliador at @parameters.agent_avaliador
   accepts find folder job  # list the three best resumes in a folder for a job description
   on find
     if not folder

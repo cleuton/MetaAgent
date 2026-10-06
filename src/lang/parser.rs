@@ -1,7 +1,8 @@
 //! Recursive descent parser. Every error says what is wrong and how to fix it.
 
 use super::ast::*;
-use super::lexer::{Line, Tok, Token, lex};
+use super::lexer::{Line, Tok, Token, lex, template_parts};
+use super::params::Params; // 0.1.2: parameters of metagente.toml
 use crate::diagnostics::Diagnostic;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,6 +16,17 @@ pub fn parse_file(
     path: Option<PathBuf>,
     text: &str,
 ) -> Result<Vec<AgentDef>, Diagnostic> {
+    // 0.1.2: without parameters, exactly as in 0.1.1
+    parse_file_with(name, path, text, &Params::default())
+}
+
+/// 0.1.2: like `parse_file`, and every `@parameters.name` takes the value it has in `params`.
+pub fn parse_file_with(
+    name: &str,
+    path: Option<PathBuf>,
+    text: &str,
+    params: &Params,
+) -> Result<Vec<AgentDef>, Diagnostic> {
     let source = Arc::new(SourceFile {
         name: name.to_string(),
         path,
@@ -25,6 +37,7 @@ pub fn parse_file(
         lines,
         pos: 0,
         source: source.clone(),
+        params: params.clone(), // 0.1.2: what `@parameters.name` stands for
     };
     parser.file()
 }
@@ -33,6 +46,8 @@ struct Parser {
     lines: Vec<Line>,
     pos: usize,
     source: Arc<SourceFile>,
+    // 0.1.2: the parameters of metagente.toml
+    params: Params,
 }
 
 /// Cursor over the tokens of one line.
@@ -312,7 +327,7 @@ impl Parser {
                 let scope = if matches!(
                     c.tokens.get(c.i),
                     Some(Token {
-                        tok: Tok::Str(_),
+                        tok: Tok::Str(_) | Tok::Param(_), // 0.1.2: a parameter is text too
                         ..
                     })
                 ) {
@@ -341,7 +356,7 @@ impl Parser {
                 while matches!(
                     c.tokens.get(c.i),
                     Some(Token {
-                        tok: Tok::Str(_),
+                        tok: Tok::Str(_) | Tok::Param(_), // 0.1.2: a parameter is text too
                         ..
                     })
                 ) {
@@ -674,6 +689,23 @@ impl Parser {
                 c.i += 1;
                 Ok(Expr::Text(parts, span))
             }
+            // 0.1.2: a parameter used as a value; `{name}` places in it are filled in like in written text
+            Tok::Param(name) => {
+                c.i += 1;
+                let value = self.param_value(&name, c.line, token.col)?;
+                let parts = template_parts(&value).map_err(|inner| {
+                    self.err(
+                        c.line,
+                        token.col,
+                        format!(
+                            "the parameter `{}` has `{{{}}}` in it, which is not a name I can fill in",
+                            name, inner
+                        ),
+                        "put a name between the braces in metagente.toml, like {city}",
+                    )
+                })?;
+                Ok(Expr::Text(parts, span))
+            }
             Tok::Number(n) => {
                 c.i += 1;
                 Ok(Expr::Number(n, span))
@@ -887,8 +919,43 @@ impl Parser {
                 c.i += 1;
                 Ok(parts.clone())
             }
+            // 0.1.2: in a declaration the value of a parameter is used as it is
+            Some(Token {
+                tok: Tok::Param(name),
+                col,
+            }) => {
+                c.i += 1;
+                Ok(vec![TextPart::Lit(self.param_value(name, c.line, *col)?)])
+            }
             _ => Err(self.missing(c, msg, fix)),
         }
+    }
+
+    /// 0.1.2: the text of a parameter, or an error that says how to add it.
+    fn param_value(&self, name: &str, line: usize, col: usize) -> Result<String, Diagnostic> {
+        if let Some(value) = self.params.values.get(name) {
+            return Ok(value.clone());
+        }
+        if self.params.not_text.contains(name) {
+            return Err(self.err(
+                line,
+                col,
+                format!("the parameter `{}` is not text", name),
+                format!(
+                    "write its value in quotes in metagente.toml, for example: {} = \"3\"",
+                    name
+                ),
+            ));
+        }
+        Err(self.err(
+            line,
+            col,
+            format!("there is no parameter called `{}`", name),
+            format!(
+                "add it under [parameters] in metagente.toml, for example: {} = \"some text\"",
+                name
+            ),
+        ))
     }
 
     /// The line must be fully consumed.

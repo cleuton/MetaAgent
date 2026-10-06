@@ -196,3 +196,135 @@ async fn runtime_errors_point_at_the_line() {
     assert!(text.contains("line 6"), "{}", text);
     assert!(text.contains("does not exist"), "{}", text);
 }
+
+// 0.1.2: the new problems read like every other one: the line, what went wrong, a fix, no Rust text
+
+#[test]
+fn text_that_is_never_closed() {
+    let text = located(
+        &problems(
+            "agent A\n  goal \"x\"\n  accepts go\n  on go\n    reply \"\"\"never ends\n    reply \"b\"\n",
+        )[0],
+    );
+    assert!(text.starts_with("Problem on line 5"), "{}", text);
+    assert!(
+        text.contains("the text that starts on line 5 was never closed"),
+        "{}",
+        text
+    );
+    assert!(
+        text.contains("Fix: end it with three quotes, like this: \"\"\""),
+        "{}",
+        text
+    );
+}
+
+#[test]
+fn an_error_after_a_multi_line_text_names_the_right_line() {
+    let source = "agent A\n  goal \"x\"\n  accepts go\n  on go\n    a = \"\"\"one\ntwo\nthree\"\"\"\n    reply nme\n";
+    let text = located(&problems(source)[0]);
+    assert!(text.starts_with("Problem on line 8"), "{}", text);
+    assert!(
+        text.contains("I do not know what `nme` is here"),
+        "{}",
+        text
+    );
+}
+
+// 0.1.2: parse with the parameters given, as `metagente run` and `check` do
+fn problems_with(source: &str, params: &metagente::lang::Params) -> Vec<Diagnostic> {
+    match metagente::lang::parse_file_with("golden.ag", None, source, params) {
+        Ok(agents) => check_all(&agents.into_iter().map(Arc::new).collect::<Vec<_>>()),
+        Err(d) => vec![d],
+    }
+}
+
+#[test]
+fn a_parameter_that_does_not_exist() {
+    let text = located(
+        &problems_with(
+            "agent A\n  goal \"x\"\n  accepts go\n  on go\n    reply @parameters.missing\n",
+            &Default::default(),
+        )[0],
+    );
+    assert!(text.starts_with("Problem on line 5"), "{}", text);
+    assert!(
+        text.contains("there is no parameter called `missing`"),
+        "{}",
+        text
+    );
+    assert!(
+        text.contains(
+            "Fix: add it under [parameters] in metagente.toml, for example: missing = \"some text\""
+        ),
+        "{}",
+        text
+    );
+}
+
+#[test]
+fn a_parameter_that_is_not_text() {
+    let mut params = metagente::lang::Params::default();
+    params.not_text.insert("retries".to_string());
+    let text = located(
+        &problems_with(
+            "agent A\n  goal @parameters.retries\n  accepts go\n  on go\n    reply \"x\"\n",
+            &params,
+        )[0],
+    );
+    assert!(
+        text.contains("the parameter `retries` is not text"),
+        "{}",
+        text
+    );
+    assert!(
+        text.contains("Fix: write its value in quotes in metagente.toml"),
+        "{}",
+        text
+    );
+}
+
+#[test]
+fn a_badly_written_parameter() {
+    for bad in [
+        "@parameters",
+        "@other.name",
+        "@parameters.",
+        "@parameters.a.b",
+    ] {
+        let source = format!(
+            "agent A\n  goal \"x\"\n  accepts go\n  on go\n    reply {}\n",
+            bad
+        );
+        let text = located(&problems_with(&source, &Default::default())[0]);
+        assert!(
+            text.contains(&format!("I do not understand `{}`", bad)),
+            "{}",
+            text
+        );
+        assert!(
+            text.contains("Fix: parameters are written like this: @parameters.name"),
+            "{}",
+            text
+        );
+    }
+}
+
+#[test]
+fn a_parameter_with_braces_that_are_not_a_name() {
+    let mut params = metagente::lang::Params::default();
+    params
+        .values
+        .insert("p".to_string(), "bad {not a name}".to_string());
+    let text = located(
+        &problems_with(
+            "agent A\n  goal \"x\"\n  accepts go\n  on go\n    reply @parameters.p\n",
+            &params,
+        )[0],
+    );
+    assert!(
+        text.contains("the parameter `p` has `{not a name}` in it"),
+        "{}",
+        text
+    );
+}

@@ -1,0 +1,4 @@
+# 0.1.2: parameters for examples/parameters.ag. Run Metagente from this folder to use them.
+[parameters]
+a2a_leitor = "http://127.0.0.1:8080"
+prompt1 = "you are a recruiter..."

@@ -6,5 +6,5 @@ agent Leitor
   on summarize
     if not folder
       fail "I need the resumes folder name"
-    digest = think "You are a resume reader. Use the files tool (list_directory) to list the folder {folder}, and list_allowed_directories to find the absolute path where it lives. For EACH file in the folder, use the convert tool (convert_to_markdown) with the uri file:// followed by the file's full absolute path. It reads PDF, DOCX, HTML, MD, TXT and JSON. Only read, never write or change anything. Then write, for each file, a block in exactly this format:\nFILE: file name with extension\nNAME: candidate's full name\nSUMMARY: up to 3 lines with field of work, years of experience (listing years of Rust in production separately, if any), main technologies, education and languages\n\nIf the file is not a resume, write FILE and then NAME: not a resume. If you cannot read the file, write FILE and then NAME: unreadable. Reply only with the blocks, separated by a blank line, with no introduction."
+    digest = think @parameters.prompt_leitor
     reply digest

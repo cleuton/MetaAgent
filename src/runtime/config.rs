@@ -1,6 +1,7 @@
 //! Settings that live outside agent code (metagente.toml and environment variables).
 
 use crate::diagnostics::Diagnostic;
+use crate::lang::Params; // 0.1.2: the [parameters] section
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Default)]
@@ -22,6 +23,8 @@ pub struct Config {
     pub root: PathBuf,
     /// Plain-language warnings, for example unknown keys.
     pub warnings: Vec<String>,
+    // 0.1.2: the [parameters] section, read by agents as @parameters.name
+    pub parameters: Params,
 }
 
 impl Default for Config {
@@ -34,11 +37,12 @@ impl Default for Config {
             a2a_port: 8080,
             root: PathBuf::from("."),
             warnings: Vec::new(),
+            parameters: Params::default(), // 0.1.2: none unless metagente.toml has [parameters]
         }
     }
 }
 
-const KNOWN_TOP: &[&str] = &["llm", "runtime", "serve"];
+const KNOWN_TOP: &[&str] = &["llm", "runtime", "serve", "parameters"]; // 0.1.2: parameters is a known section
 const KNOWN_LLM: &[&str] = &["provider", "model", "api_key_env", "base_url"];
 const KNOWN_RUNTIME: &[&str] = &["timeout_seconds", "think_max_steps"];
 const KNOWN_SERVE: &[&str] = &["a2a_port", "bind"];
@@ -95,6 +99,11 @@ impl Config {
         Ok(config)
     }
 
+    /// 0.1.2: only the parameters, found like the rest of the settings. Environment variables play no part.
+    pub fn load_parameters(start: &Path) -> Result<Params, Diagnostic> {
+        Ok(Self::load_with_env(start, &|_| None)?.parameters)
+    }
+
     fn read_file(&mut self, path: &Path) -> Result<(), Diagnostic> {
         let text = std::fs::read_to_string(path).map_err(|e| {
             Diagnostic::new(format!("I could not read {}: {}", path.display(), e))
@@ -134,6 +143,21 @@ impl Config {
                 self.think_max_steps = n.max(1) as usize;
             }
         }
+        // 0.1.2: every entry of [parameters] is a parameter; only text can be used by agents
+        if let Some(table) = value.get("parameters").and_then(|v| v.as_table()) {
+            for (name, v) in table {
+                match v.as_str() {
+                    Some(text) => {
+                        self.parameters
+                            .values
+                            .insert(name.clone(), text.to_string());
+                    }
+                    None => {
+                        self.parameters.not_text.insert(name.clone());
+                    }
+                }
+            }
+        }
         if let Some(sv) = value.get("serve").and_then(|v| v.as_table()) {
             if let Some(n) = sv.get("a2a_port").and_then(|v| v.as_integer()) {
                 self.a2a_port = n.clamp(1, 65535) as u16;
@@ -152,6 +176,10 @@ impl Config {
                     "metagente.toml has an unknown section `[{}]`; I ignored it",
                     key
                 ));
+                continue;
+            }
+            // 0.1.2: parameters have names of their own, so none of them is "unknown"
+            if key == "parameters" {
                 continue;
             }
             let known = match key.as_str() {

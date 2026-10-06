@@ -202,3 +202,109 @@ fn hyphenated_names_and_dotted_actions_can_call_real_mcp_tools() {
         other => panic!("{:?}", other),
     }
 }
+
+// 0.1.2: `@parameters.name` is accepted wherever a text is accepted
+
+fn with_params(text: &str) -> Result<Vec<metagente::lang::AgentDef>, String> {
+    let mut params = metagente::lang::Params::default();
+    for (k, v) in [
+        ("goal", "Answer questions"),
+        ("scope", "data/"),
+        ("cmd", "npx -y weather-mcp"),
+        ("path", "weather.ag"),
+        ("url", "http://127.0.0.1:8080"),
+        ("who", "Bob"),
+        ("why", "no way"),
+        ("var", "HOME"),
+    ] {
+        params.values.insert(k.to_string(), v.to_string());
+    }
+    metagente::lang::parse_file_with("test.ag", None, text, &params).map_err(|d| d.render())
+}
+
+#[test]
+fn a_parameter_works_in_every_declaration() {
+    let agents = with_params(
+        r#"agent A
+  goal @parameters.goal
+  tool file @parameters.scope
+  tool env @parameters.var
+  tool weather from mcp @parameters.cmd
+  link W from @parameters.path
+  remote bob at @parameters.url
+  accepts go
+  on go
+    reply "x"
+"#,
+    )
+    .unwrap();
+    let a = &agents[0];
+    assert_eq!(a.goal.as_ref().unwrap().0, "Answer questions");
+    assert_eq!(
+        a.tools[0].kind,
+        ToolKind::File {
+            scope: Some("data/".to_string())
+        }
+    );
+    assert_eq!(
+        a.tools[1].kind,
+        ToolKind::Env {
+            names: vec!["HOME".to_string()]
+        }
+    );
+    assert_eq!(
+        a.tools[2].kind,
+        ToolKind::Mcp {
+            command: "npx -y weather-mcp".to_string()
+        }
+    );
+    assert_eq!(a.links[0].path.as_deref(), Some("weather.ag"));
+    assert_eq!(a.remotes[0].url, "http://127.0.0.1:8080");
+}
+
+#[test]
+fn a_parameter_works_in_every_statement_and_expression() {
+    let agents = with_params(
+        r#"agent A
+  goal "a"
+  tool clock
+  accepts go
+  on go
+    a = think @parameters.goal
+    b = clock.now label: @parameters.who
+    c = [@parameters.who, "x", @parameters.why]
+    if a is @parameters.who
+      fail @parameters.why
+    otherwise
+      reply @parameters.goal
+"#,
+    )
+    .unwrap();
+    let body = &agents[0].handlers[0].body;
+    assert_eq!(body.len(), 4);
+    assert!(matches!(
+        &body[0],
+        Stmt::Assign {
+            value: Expr::Think { .. },
+            ..
+        }
+    ));
+    assert!(
+        matches!(&body[2], Stmt::Assign { value: Expr::List(items, _), .. } if items.len() == 3)
+    );
+    assert!(matches!(&body[3], Stmt::If { .. }));
+}
+
+#[test]
+fn a_name_called_parameters_still_works_without_an_at_sign() {
+    let agents =
+        parse("agent A\n  goal \"a\"\n  accepts go parameters\n  on go\n    reply parameters\n")
+            .unwrap();
+    assert_eq!(agents[0].accepts[0].params, vec!["parameters".to_string()]);
+}
+
+#[test]
+fn without_parameters_parse_file_refuses_a_reference() {
+    let e = err("agent A\n  goal @parameters.x\n  accepts go\n  on go\n    reply \"x\"\n");
+    assert!(e.contains("there is no parameter called `x`"), "{}", e);
+}

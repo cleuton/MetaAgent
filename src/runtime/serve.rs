@@ -31,6 +31,10 @@ impl Served {
 
     /// The current agents. If the file was edited into something broken, the last good version stays.
     pub fn agents(&self) -> Vec<Arc<AgentDef>> {
+        // 0.1.2: a parameter edited in metagente.toml applies to the next request
+        if let Ok(params) = super::config::Config::load_parameters(&self.rt.config.root) {
+            self.rt.linker.set_parameters(params);
+        }
         match self.rt.linker.load(&self.file) {
             Ok(agents) if crate::lang::check::check_all(&agents).is_empty() => {
                 if let Ok(mut last) = self.last_good.lock() {
@@ -78,7 +82,7 @@ fn is_local(host: &str) -> bool {
 
 /// Serves the agents until the user presses Ctrl-C (or, for MCP over stdio, until the client leaves).
 pub async fn serve(opts: ServeOptions, rt: Arc<Runtime>) -> MgResult<()> {
-    let agents = super::run::load_agents(&opts.file)?;
+    let agents = super::run::load_agents_with(&opts.file, &rt.config.parameters)?; // 0.1.2: the project's parameters
     rt.linker.register(&agents);
     let mut problems = crate::lang::check::check_all(&agents);
     problems.extend(crate::link::check::check_links(

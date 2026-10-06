@@ -95,7 +95,12 @@ async fn main() -> ExitCode {
                 }
             }
         }
-        Command::Check { file } => match metagente::runtime::run::load_agents(&file) {
+        Command::Check { file } => match metagente::runtime::run::load_agents_with(
+            &file,
+            // 0.1.2: the parameters of the project; a broken metagente.toml was ignored by `check` before, and still is
+            &metagente::runtime::config::Config::load_parameters(&project_dir_of(&file))
+                .unwrap_or_default(),
+        ) {
             Err(d) => {
                 eprint!("{}", d.render());
                 ExitCode::from(1)

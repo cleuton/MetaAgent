@@ -80,6 +80,47 @@ non-programmers a way to build agents, Metagente is for you.
 - **Dynamic link:** agents call agents by name or path, with interface checks and cycle detection.
 - **A2A and MCP server:** expose an agent as an MCP server or with an A2A Agent Card, and send or receive A2A tasks.
 - **CLI:** `new`, `check`, `run` and `serve`.
+- **Multi-line text** (new in 0.1.2): a prompt with many lines between `"""` and `"""`, kept exactly as typed.
+- **External parameters** (new in 0.1.2): addresses and prompts live in `metagente.toml` and agents read them as `@parameters.name`.
+
+### New in 0.1.2
+
+A prompt with many lines, written as normal lines. It reaches the model exactly as typed
+([examples/multiline.ag](examples/multiline.ag)):
+
+```text
+agent Recruiter
+  goal "Screen candidate resumes"
+  accepts screen resume
+  on screen
+    reply think """You are a technical recruiter.
+Read the resume below and list its three strongest points.
+
+Resume:
+{resume}"""
+```
+
+An address and a prompt that change from one computer to another, kept out of the agent. They are entries of
+`[parameters]` in `metagente.toml`, in the agents' folder ([examples/parameters.ag](examples/parameters.ag)):
+
+```toml
+[parameters]
+a2a_leitor = "http://127.0.0.1:8080"
+prompt1 = "you are a recruiter..."
+```
+
+```text
+agent Screener
+  goal "Screen a resume with the help of a remote reader"
+  remote leitor at @parameters.a2a_leitor
+  accepts screen candidate
+  on screen
+    resume = leitor.read candidate: candidate
+    reply think @parameters.prompt1
+```
+
+An agent loaded with `link` reads the `metagente.toml` of the agent that loaded it. Details are in
+[docs/syntax.md](docs/syntax.md#parameters).
 
 ## A complete example
 
@@ -92,7 +133,7 @@ agent over A2A, and the Researcher reads a web page through an MCP tool. Both us
 |-------|-------|
 | Tutorial, step by step | [docs/tutorial.md](docs/tutorial.md) |
 | Programming guide (if, loops, results) | [docs/guide.md](docs/guide.md) |
-| Language syntax | [docs/syntax.md](docs/syntax.md) |
+| Language syntax, including multi-line text and parameters (new in 0.1.2) | [docs/syntax.md](docs/syntax.md) |
 | Samples | [samples/](samples/) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
 
@@ -103,6 +144,7 @@ agent over A2A, and the Researcher reads a web page through an MCP tool. Both us
 | Core language, built in and MCP tools, CLI, tutorial | Built |
 | Safe agents (per-agent permissions) | Built |
 | Dynamic link between agents | Built |
+| Multi-line text and external parameters (v0.1.2) | Built |
 | v1.0: MCP server, A2A Agent Card, A2A tasks, `serve` | Built, release pending |
 | **Project Barracuda:** an agent server invoked via A2A or a frontend, with a queue for batch triggering | Next |
 | Long running tasks, authentication for served agents, agent registry, scheduling, A2A streaming | Ideas |
@@ -120,6 +162,8 @@ Every feature starts as a spec, so you can read why things are the way they are:
 | Task list | `specs/001-metagente-core/tasks.md` |
 | Language, CLI, configuration and protocol contracts | `specs/001-metagente-core/contracts/` |
 | Validation guide | `specs/001-metagente-core/quickstart.md` |
+| v0.1.2 feature spec (multi-line text and parameters) | `specs/004-multiline-text-and-parameters/spec.md` |
+| v0.1.2 plan, tasks and contracts | `specs/004-multiline-text-and-parameters/` |
 
 ## Contributing
 
@@ -130,4 +174,4 @@ If Metagente is useful to you, a star on the repository helps other people find 
 
 ## Version
 
-**v0.1.1.** Semantic versioning. The version is kept in this file, in `CHANGELOG.md` and in `Cargo.toml`.
+**v0.1.2.** Semantic versioning. The version is kept in this file, in `CHANGELOG.md` and in `Cargo.toml`.

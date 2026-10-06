@@ -2,11 +2,14 @@
 
 A `.ag` file holds one or more agents. Indentation is **two spaces per level**. `#` starts a
 comment. Text goes in double quotes, and `{name}` inside text is replaced by the value.
+Text with many lines goes between `"""` and `"""` and is kept exactly as typed (new in 0.1.2).
+A text can also come from `metagente.toml`, written `@parameters.name` (new in 0.1.2).
 
 Contents: [Agent](#agent), [Declarations](#declarations), [Handlers](#handlers),
-[Statements](#statements), [Expressions](#expressions), [Built in tool actions](#built-in-tool-actions),
+[Statements](#statements), [Expressions](#expressions), [Text](#text) (new in 0.1.2),
+[Parameters](#parameters) (new in 0.1.2), [Built in tool actions](#built-in-tool-actions),
 [Formal grammar (EBNF)](#formal-grammar-ebnf), [Alphabetical reference](#alphabetical-reference),
-[Errors](#errors), [Commands](#commands).
+[Errors](#errors), [Commands](#commands), [Changes in 0.1.2](#changes-in-012).
 
 ## Agent
 
@@ -31,6 +34,10 @@ agent Name
 | `link Name` / `link Name from "path.ag"` | Another Metagente agent (dynamic link). |
 | `remote Name at "https://..."` | A remote A2A agent. |
 | `accepts message param param` | A message the agent understands, and its values. A `# comment` on the same line becomes its description. |
+
+Wherever a declaration takes a text in quotes, it also takes `@parameters.name` (new in 0.1.2), for
+example `remote Bob at @parameters.address` or `goal @parameters.purpose`. A parameter used here is
+taken exactly as written in `metagente.toml`.
 
 An agent can use only what it declares.
 
@@ -57,13 +64,112 @@ Every `on message` needs a matching `accepts message`.
 | `for item in list` | Repeat. |
 | `fail "message"` | Stop with a clear error. |
 
+Wherever a statement takes a text in quotes (`reply`, `think`, `fail`, a value in a call), it also
+takes `"""..."""` and `@parameters.name` (new in 0.1.2).
+
 ## Expressions
 
 - Text `"..."`, numbers, `yes`, `no`, `nothing`, lists `[1, 2, 3]`.
+- Text with many lines `"""..."""` (new in 0.1.2), see [Text](#text).
+- A parameter `@parameters.name` (new in 0.1.2), see [Parameters](#parameters). It can be used in a
+  list and in a comparison like any other text.
 - Names (letters, digits, `_` and `-`), and fields of records: `forecast.summary`.
 - Comparisons: `is`, `is not`, `is more than`, `is less than`, `contains`.
 - Combine with `and`, `or`, `not`.
 - A call with no values is written `clock.now`.
+
+## Text
+
+*(new in 0.1.2)*
+
+A text is one of two kinds.
+
+**One line**, between `"` and `"`. This is the text you already know: `\n` is a line break, and `{name}` is replaced by
+the value.
+
+```text
+reply "Hello, {name}!"
+```
+
+**Many lines**, between `"""` and `"""`. The spaces are taken exactly as you typed them. Nothing is
+removed, added or lined up, not even the line break right after the opening quotes, the spaces at
+the end of a line, or the spaces in front of the closing quotes. `{name}` still fills in a value, a
+`#` inside is part of the text, and a backslash is just a backslash. The text ends at the next `"""`.
+
+```text
+  a = think """
+Aqui vale fazer isso. 
+         E isso também
+  """
+```
+
+The text above is: a line break, `Aqui vale fazer isso.`, a space, a line break, nine spaces,
+`E isso também`, a line break, two spaces. Written with `·` for a space and `⏎` for a line break, it is
+`⏎Aqui vale fazer isso.·⏎·········E isso também⏎··`.
+
+It is the same kind of value as any other text, so it can be used anywhere `"..."` can:
+
+```text
+reply think """You are a technical recruiter.
+Read the resume below and list its three strongest points.
+
+Resume:
+{resume}"""
+```
+
+If the closing `"""` is missing, the error names the line where the text started (see
+[Errors](#errors)). A `"""` cannot appear inside a many-line text; there is no way to escape it.
+Line numbers in errors count the lines inside a many-line text, so an error after it names the right line.
+
+## Parameters
+
+*(new in 0.1.2)*
+
+Some values change from one computer to another: the address of a remote agent, a long prompt.
+Keep them out of the `.ag` file. Put them in the `[parameters]` section of `metagente.toml`, and
+read them in the agent as `@parameters.name`.
+
+```toml
+[parameters]
+a2a_leitor = "http://127.0.0.1:8080"
+prompt1 = "you are a recruiter..."
+```
+
+```text
+agent Screener
+  goal "Screen a resume with the help of a remote reader"
+  remote leitor at @parameters.a2a_leitor
+  accepts screen candidate
+  on screen
+    resume = leitor.read candidate: candidate
+    reply think @parameters.prompt1
+```
+
+- Each entry of `[parameters]` is one parameter, and its value is text. A number or a list in
+  `[parameters]` is not a parameter an agent can read; the error says so.
+- `@parameters.name` can be used wherever text in quotes can: in `goal`, `tool`, `link` and `remote`
+  lines, after `think`, `reply` and `fail`, as a value in a call, in a list and in a comparison.
+- It is found in the same `metagente.toml` as the rest of the settings: the one in the folder where
+  you run Metagente, or in a folder above it. With no `metagente.toml`, or no `[parameters]` in it,
+  there are no parameters.
+- Used as text (after `think`, `reply`, `fail`, in a call, a list or a comparison), a `{name}` inside
+  the value is filled in, as if the text had been written in the `.ag` file. In a declaration
+  (`goal`, `tool`, `link`, `remote`) the value is used exactly as it is.
+- All the rules still apply to the value: `tool file @parameters.folder` stays inside that folder,
+  `tool env` still refuses the variable that holds the model key, and `link` still refuses cycles.
+- While `metagente serve` runs, a changed parameter applies to the next request.
+- A parameter that does not exist is an error, and `metagente check` reports it without running.
+
+**Agents loaded with `link`** run in the context of the agent that loaded them. They read the
+`metagente.toml` of that agent, with all its settings, even if their own folder has a different
+`metagente.toml`. It makes no difference whether the linked agent has a `metagente.toml` in its own
+folder: that file is not used. If the agent that loaded it has none, the linked agent has no parameters.
+
+| Agent that loads (A) | Linked agent (B) | `@parameters.x` in B |
+|----------------------|------------------|----------------------|
+| `x = "1"` | its folder has `x = "2"` | `1` |
+| `x = "1"` | its folder has no `metagente.toml` | `1` |
+| no `metagente.toml` | its folder has `x = "2"` | error: the parameter does not exist |
 
 ## Built in tool actions
 
@@ -155,7 +261,11 @@ path          = NAME { "." NAME } ;
 NAME          = ( letter | "_" ) { letter | digit | "_" | "-" } ;
 ACTION        = ( letter | "_" ) { letter | digit | "_" | "-" | "." } ;
 NUMBER        = digit { digit } [ "." digit { digit } ] ;
-TEXT          = '"' { text_char | interpolation | escape } '"' ;
+(* new in 0.1.2: every rule above that says TEXT takes any of the three forms *)
+TEXT          = STRING | MULTILINE | PARAM ;
+STRING        = '"' { text_char | interpolation | escape } '"' ;
+MULTILINE     = '"""' { any_char | interpolation } '"""' ;   (* any_char includes line breaks; ends at the next '"""' *)
+PARAM         = "@parameters." NAME ;
 interpolation = "{" path "}" ;
 escape        = "\n" ;
 ```
@@ -170,6 +280,9 @@ Reading notes:
   `tool`, `within`, `yes` have a meaning in the language and should not be used as names.
 - `tool NAME from mcp` and the built in tools share the `tool` word. `file`, `http`, `state`,
   `clock` and `env` are the built in names.
+- New in 0.1.2: `TEXT` is a one-line `STRING`, a `MULTILINE` text, or a `PARAM`. A `PARAM` stands for the
+  text of that entry of `[parameters]`. Inside a `MULTILINE` there are no escapes: a backslash is a
+  backslash. `tool env` takes `TEXT` for each name, so it takes parameters as well.
 - Only `\n` is documented as an escape inside text. Escapes for a double quote or for a literal
   `{` are not described yet.
 - This grammar is derived from this reference, the tutorial and the programming guide. Where the
@@ -180,6 +293,29 @@ Reading notes:
 
 Every word and call of the language, in alphabetical order. Each entry has the form, what it does
 and a short example.
+
+### `"""`
+
+*(new in 0.1.2)* Starts and ends a text with many lines. Everything between the two `"""` is kept
+exactly as typed, with its spaces and line breaks.
+
+```text
+reply think """You are a technical recruiter.
+Read the resume below and list its three strongest points.
+
+Resume:
+{resume}"""
+```
+
+### `@parameters`
+
+*(new in 0.1.2)* `@parameters.name` is the text of the entry `name` in the `[parameters]` section of
+`metagente.toml`. It can be used wherever text in quotes can. A name that is not there is an error.
+
+```text
+remote leitor at @parameters.a2a_leitor
+reply think @parameters.prompt1
+```
 
 ### `accepts`
 
@@ -214,6 +350,7 @@ Used by `remote` to give the address of a remote A2A agent.
 
 ```text
 remote Bob at "http://127.0.0.1:8080"
+remote Bob at @parameters.address        # new in 0.1.2: the address comes from metagente.toml
 ```
 
 ### `clock.now`
@@ -257,6 +394,7 @@ Stops the agent with your sentence as the error, shown with the line.
 ```text
 if city is nothing
   fail "I need a city"
+  fail @parameters.no_city_message         # new in 0.1.2: the sentence comes from metagente.toml
 ```
 
 ### `file.read`
@@ -290,7 +428,9 @@ Used by `link` to give a file path, and by `tool` to say where an MCP tool comes
 
 ```text
 link Weather from "agents/weather.ag"
+link Weather from @parameters.weather_file      # new in 0.1.2
 tool weather from mcp "npx -y weather-mcp"
+tool weather from mcp @parameters.weather_mcp   # new in 0.1.2
 ```
 
 ### `goal`
@@ -299,6 +439,7 @@ What the agent is for. Required, one per agent.
 
 ```text
 goal "Say hello to someone"
+goal @parameters.purpose                 # new in 0.1.2: the text comes from metagente.toml
 ```
 
 ### `http.get`
@@ -349,6 +490,7 @@ against its `accepts`.
 ```text
 link Weather
 link Weather from "agents/weather.ag"
+link Weather from @parameters.weather_file     # new in 0.1.2
 ```
 
 ### `name = expression`
@@ -400,6 +542,12 @@ remote Bob at "http://127.0.0.1:8080"
 forecast = Bob.ask city: city
 ```
 
+A remote address can come from `metagente.toml` (new in 0.1.2):
+
+```text
+remote Bob at @parameters.address
+```
+
 ### `reply`
 
 Sends the answer back to whoever asked (terminal, another agent, an A2A client) and finishes.
@@ -443,6 +591,9 @@ a value like any other.
 ```text
 summary = think "Summarize this in one sentence:\n{report}"
 reply think "{question}"
+reply think @parameters.prompt1          # new in 0.1.2: the prompt comes from metagente.toml
+reply think """Summarize this in one sentence.
+{report}"""                              # new in 0.1.2: a prompt with many lines
 ```
 
 ### `tool`
@@ -458,6 +609,8 @@ tool clock
 tool env "HOME" "LANG"
 tool weather from mcp "npx -y weather-mcp"
 tool weather from mcp "npx -y weather-mcp" within 60 seconds
+tool file @parameters.folder             # new in 0.1.2: the folder comes from metagente.toml
+tool weather from mcp @parameters.weather_mcp   # new in 0.1.2
 ```
 
 ### `within`
@@ -484,15 +637,40 @@ Every problem says where it is, what went wrong, and how to fix it. Problems tha
 Metagente (an MCP server, a remote agent, the operating system) are passed on in plain words and
 name their source.
 
+New in 0.1.2, a text with many lines that is never closed:
+
+```text
+Problem on line 5 of recruiter.ag: the text that starts on line 5 was never closed
+  5 |     reply think """You are a recruiter.
+    |                 ^
+Fix: end it with three quotes, like this: """
+```
+
+New in 0.1.2, a parameter that is not in `metagente.toml`:
+
+```text
+Problem on line 5 of screener.ag: there is no parameter called `a2a_leitor`
+  5 |   remote leitor at @parameters.a2a_leitor
+    |                    ^
+Fix: add it under [parameters] in metagente.toml, for example: a2a_leitor = "some text"
+```
+
+New in 0.1.2, a parameter whose value is not text (`retries = 3` instead of `retries = "3"`):
+
+```text
+Problem on line 5 of screener.ag: the parameter `retries` is not text
+Fix: write its value in quotes in metagente.toml, for example: retries = "3"
+```
+
 ## Commands
 
 | Command | Does |
 |---------|------|
 | `metagente run FILE.ag MESSAGE key=value ...` | Run an agent. Add `--agent Name` to pick one from a file with several. |
-| `metagente check FILE.ag` | Look for problems without running. |
+| `metagente check FILE.ag` | Look for problems without running. Since 0.1.2 it also verifies that every `@parameters.name` exists in `metagente.toml`. |
 | `metagente new NAME` | Create a starter agent and `metagente.toml`. |
 | `metagente serve FILE.ag --a2a PORT --mcp stdio` | Keep agents running for other programs. Local only unless `--public`. |
-| `metagente --version` | Show the version. |
+| `metagente --version` | Show the version (`metagente 0.1.2`). |
 
 Examples:
 
@@ -505,3 +683,13 @@ metagente serve weather.ag --a2a 8080
 metagente serve weather.ag --mcp stdio
 metagente serve weather.ag --mcp 9000
 ```
+
+## Changes in 0.1.2
+
+- **Text with many lines** between `"""` and `"""`, kept exactly as typed. See [Text](#text).
+- **Parameters**: `@parameters.name` reads the `[parameters]` section of `metagente.toml`, anywhere text
+  in quotes is accepted. Agents loaded with `link` read the `metagente.toml` of the agent that
+  loaded them. See [Parameters](#parameters).
+- Two new errors: a text with many lines that is not closed, and a parameter that does not exist.
+- `metagente check` verifies parameters; `metagente new` writes a commented `[parameters]` example.
+- Everything that worked in 0.1.1 works in 0.1.2 and behaves the same way.

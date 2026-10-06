@@ -4,6 +4,24 @@ All notable changes to Metagente are recorded here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## v0.1.2 - 2026-10-06
+
+Multi-line text and external parameters. Everything that worked in 0.1.1 works the same way.
+
+### Added
+- Text with many lines between `"""` and `"""`, kept exactly as typed (spaces and line breaks included).
+- Parameters: the `[parameters]` section of `metagente.toml`, read by agents as `@parameters.name` anywhere text
+  in quotes is accepted. `{name}` in a parameter used as text is filled in.
+- Agents loaded with `link` read the parameters of the agent that loaded them, not those of their own folder.
+- Two plain-language errors: a text with many lines that is not closed, and a parameter that does not exist.
+- `metagente check` verifies parameters; `metagente serve` applies a changed parameter on the next request;
+  `metagente new` writes a commented `[parameters]` example.
+- Examples `examples/multiline.ag` and `examples/parameters.ag` (with `examples/metagente.toml`).
+- `docs/syntax.md`: the sections Text and Parameters, the grammar, the reference and the errors are updated.
+
+### Changed
+- Source code changed for this release carries a comment starting with `0.1.2:`.
+
 ## v0.1.1 - 2026-10-02
 
 The interpreter now exists. Everything in the specification is implemented and tested.

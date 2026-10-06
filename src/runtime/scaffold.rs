@@ -18,6 +18,12 @@ think_max_steps = 10      # how many steps `think` may take
 [serve]
 a2a_port = 8080
 bind = "127.0.0.1"        # only this computer; use --public to open up
+
+# 0.1.2: texts that agents read as @parameters.name, so you change them here and not in the .ag files.
+# Uncomment and use them in an agent, for example: reply think @parameters.prompt1
+# [parameters]
+# prompt1 = "You are a helpful assistant."
+# a2a_leitor = "http://127.0.0.1:8080"
 "#;
 
 fn agent_name(name: &str) -> String {

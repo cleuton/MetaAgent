@@ -30,12 +30,15 @@ pub struct Runtime {
 impl Runtime {
     pub fn new(config: Config, llm: Option<Arc<dyn Llm>>) -> Arc<Runtime> {
         let http = web::build_client();
+        // 0.1.2: agents loaded with `link` read the parameters of the agent that loaded them
+        let linker: crate::link::Linker = Default::default();
+        linker.set_parameters(config.parameters.clone());
         Arc::new(Runtime {
             config,
             llm,
             http,
             mcp: Default::default(),
-            linker: Default::default(),
+            linker,
             states: Mutex::new(HashMap::new()),
         })
     }

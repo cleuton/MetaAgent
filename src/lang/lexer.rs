@@ -9,6 +9,8 @@ pub enum Tok {
     Word(String),
     Number(f64),
     Str(Vec<TextPart>),
+    // 0.1.2: `@parameters.name`, the name of a parameter of metagente.toml
+    Param(String),
     Sym(char),
 }
 
@@ -26,6 +28,8 @@ impl Token {
             Tok::Word(w) => format!("`{}`", w),
             Tok::Number(n) => format!("`{}`", n),
             Tok::Str(_) => "a piece of text".to_string(),
+            // 0.1.2: describe a parameter reference in error messages
+            Tok::Param(name) => format!("`@parameters.{}`", name),
             Tok::Sym(c) => format!("`{}`", c),
         }
     }
@@ -43,9 +47,13 @@ pub struct Line {
 
 pub fn lex(file: &str, source: &Arc<str>) -> Result<Vec<Line>, Diagnostic> {
     let mut lines = Vec::new();
-    for (index, raw) in source.split('\n').enumerate() {
+    // 0.1.2: a multi-line string spans several physical lines, so the lines are walked by index
+    let physical: Vec<&str> = source.split('\n').collect();
+    let mut index = 0;
+    while index < physical.len() {
         let number = index + 1;
-        let raw = raw.trim_end_matches('\r');
+        let raw = physical[index].trim_end_matches('\r');
+        index += 1;
         let fail = |col: usize, msg: String, fix: &str| {
             Diagnostic::new(msg)
                 .at(file, number, col)
@@ -67,7 +75,7 @@ pub fn lex(file: &str, source: &Arc<str>) -> Result<Vec<Line>, Diagnostic> {
             ));
         }
         let spaces = raw.chars().take_while(|c| *c == ' ').count();
-        let chars: Vec<char> = raw.chars().collect();
+        let mut chars: Vec<char> = raw.chars().collect(); // 0.1.2: mut, a multi-line string continues on its closing line
         if chars.get(spaces) == Some(&'#') {
             continue;
         }
@@ -92,6 +100,89 @@ pub fn lex(file: &str, source: &Arc<str>) -> Result<Vec<Line>, Diagnostic> {
             } else if c == '#' {
                 comment = Some(chars[i + 1..].iter().collect::<String>().trim().to_string());
                 break;
+            } else if c == '"' && chars.get(i + 1) == Some(&'"') && chars.get(i + 2) == Some(&'"') {
+                // 0.1.2: `"""` starts a multi-line string, kept exactly as typed up to the next `"""`
+                let rest: String = physical[number - 1].chars().skip(i + 3).collect();
+                let mut content = String::new();
+                let mut text = rest.as_str();
+                let mut last = number - 1; // physical index of the line being read
+                let closing_col = loop {
+                    if let Some(p) = text.find("\"\"\"") {
+                        content.push_str(&text[..p]);
+                        // character position of the closing quotes inside the physical line
+                        let before = if last == number - 1 {
+                            i + 3 + text[..p].chars().count()
+                        } else {
+                            text[..p].chars().count()
+                        };
+                        break before + 3;
+                    }
+                    content.push_str(text);
+                    content.push('\n');
+                    last += 1;
+                    match physical.get(last) {
+                        Some(next_line) => text = next_line,
+                        None => {
+                            return Err(fail(
+                                col,
+                                format!("the text that starts on line {} was never closed", number),
+                                "end it with three quotes, like this: \"\"\"",
+                            ));
+                        }
+                    }
+                };
+                let parts = template_parts(&content).map_err(|inner| {
+                    fail(
+                        col,
+                        format!(
+                            "`{{{}}}` inside this text is not a name I can fill in",
+                            inner
+                        ),
+                        "put a name between the braces, like {city} or {forecast.summary}",
+                    )
+                })?;
+                tokens.push(Token {
+                    tok: Tok::Str(parts),
+                    col,
+                });
+                // the rest of the closing line is lexed as usual, and the next line to read follows it
+                chars = physical[last].trim_end_matches('\r').chars().collect();
+                i = closing_col;
+                index = last + 1;
+            } else if c == '@' {
+                // 0.1.2: `@parameters.name` reads a parameter of metagente.toml
+                let start = i;
+                i += 1;
+                while i < chars.len()
+                    && (chars[i].is_alphanumeric()
+                        || chars[i] == '_'
+                        || chars[i] == '-'
+                        || chars[i] == '.')
+                {
+                    i += 1;
+                }
+                let word: String = chars[start..i].iter().collect();
+                match word.strip_prefix("@parameters.") {
+                    Some(name)
+                        if name
+                            .chars()
+                            .next()
+                            .is_some_and(|c| c.is_alphabetic() || c == '_')
+                            && !name.contains('.') =>
+                    {
+                        tokens.push(Token {
+                            tok: Tok::Param(name.to_string()),
+                            col,
+                        });
+                    }
+                    _ => {
+                        return Err(fail(
+                            col,
+                            format!("I do not understand `{}`", word),
+                            "parameters are written like this: @parameters.name",
+                        ));
+                    }
+                }
             } else if c == '"' {
                 let (parts, next) = lex_string(&chars, i, |msg, fix| fail(col, msg, fix))?;
                 tokens.push(Token {
@@ -235,4 +326,43 @@ fn lex_string(
         parts.push(TextPart::Lit(lit));
     }
     Ok((parts, i))
+}
+
+/// 0.1.2: splits a text that is used as it is typed (no escapes) into literal parts and `{name}` places.
+/// On a `{...}` that is not a name, gives back what was between the braces.
+pub fn template_parts(text: &str) -> Result<Vec<TextPart>, String> {
+    let mut parts: Vec<TextPart> = Vec::new();
+    let mut lit = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('{') {
+        lit.push_str(&rest[..open]);
+        let Some(close) = rest[open..].find('}') else {
+            return Err(rest[open + 1..].to_string());
+        };
+        let inner = &rest[open + 1..open + close];
+        let path: Vec<String> = inner
+            .trim()
+            .split('.')
+            .map(|s| s.trim().to_string())
+            .collect();
+        let valid = !inner.trim().is_empty()
+            && path.iter().all(|p| {
+                !p.is_empty()
+                    && p.chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+            });
+        if !valid {
+            return Err(inner.to_string());
+        }
+        if !lit.is_empty() {
+            parts.push(TextPart::Lit(std::mem::take(&mut lit)));
+        }
+        parts.push(TextPart::Var(path));
+        rest = &rest[open + close + 1..];
+    }
+    lit.push_str(rest);
+    if !lit.is_empty() || parts.is_empty() {
+        parts.push(TextPart::Lit(lit));
+    }
+    Ok(parts)
 }

@@ -1,0 +1,9 @@
+# 0.1.2: the address and the prompt are not written here. They are @parameters.name,
+# read from the [parameters] section of metagente.toml in the same folder.
+agent Screener
+  goal "Screen a resume with the help of a remote reader"
+  remote leitor at @parameters.a2a_leitor
+  accepts screen candidate
+  on screen
+    resume = leitor.read candidate: candidate
+    reply think @parameters.prompt1
