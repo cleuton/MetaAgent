@@ -1,0 +1,6 @@
+# 0.1.3: everything the Python side of the interop tests needs. Python 3.11 or newer.
+#   python3 -m venv .venv && . .venv/bin/activate && pip install -r tests/interop/requirements.txt
+a2a-sdk[http-server]==1.2.0   # the official A2A SDK (A2A spec 1.0.0): agent and client
+uvicorn>=0.30                 # serves the Python agent
+httpx>=0.27                   # used by the client script
+cryptography>=42              # makes the self-signed certificates at test time

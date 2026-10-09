@@ -2,7 +2,11 @@
 //! Helpers shared by the integration tests: a runtime, an agent runner, and fake servers.
 
 pub mod a2a;
+pub mod a2a_tls; // 0.1.3: the same server over TLS
 pub mod fake_mcp;
+pub mod proxy; // 0.1.3: test proxy
+pub mod python; // 0.1.3: the Python side of the interop tests
+pub mod tls_server; // 0.1.3: test HTTPS server
 pub mod web;
 
 use metagente::diagnostics::Diagnostic;

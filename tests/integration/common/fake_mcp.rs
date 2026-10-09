@@ -184,3 +184,19 @@ pub async fn start() -> Running {
         stop,
     }
 }
+
+/// 0.1.3: the same server over TLS, reachable as https://localhost:PORT/mcp (the certificate must be valid for `localhost`).
+pub async fn start_tls(cert: &super::tls_server::TestCert) -> Running {
+    let service: StreamableHttpService<FakeWeather, LocalSessionManager> =
+        StreamableHttpService::new(
+            || Ok(FakeWeather),
+            std::sync::Arc::new(LocalSessionManager::default()),
+            StreamableHttpServerConfig::default().with_sse_keep_alive(None),
+        );
+    let router = axum::Router::new().nest_service("/mcp", service);
+    let port = super::tls_server::serve_tls(router, cert).await;
+    Running {
+        url: format!("https://localhost:{}/mcp", port),
+        stop: CancellationToken::new(),
+    }
+}

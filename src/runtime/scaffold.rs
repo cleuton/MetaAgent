@@ -24,6 +24,20 @@ bind = "127.0.0.1"        # only this computer; use --public to open up
 # [parameters]
 # prompt1 = "You are a helpful assistant."
 # a2a_leitor = "http://127.0.0.1:8080"
+
+# 0.1.3: secure connections. https:// addresses just work; these settings are for special cases.
+# [network]
+# allow_self_signed = false            # true skips certificate checks for agents, tools and web addresses (development only)
+# llm_allow_self_signed = false        # true skips certificate checks for the language model only (a private gateway you trust)
+# self_signed_hosts = ["localhost", "127.0.0.1"]   # optional: limit allow_self_signed to these hosts
+# ca_file = "certs/dev-ca.pem"         # trust one more authority and keep checking (better than skipping checks)
+#
+# [network.proxy]                      # HTTPS_PROXY, HTTP_PROXY and NO_PROXY are used when there is no url here
+# url = "http://proxy.company.com:3128"   # no user name or password inside the address
+# username_env = "PROXY_USER"          # the NAME of the variable that holds the user name
+# password_env = "PROXY_PASSWORD"      # the NAME of the variable that holds the password
+# no_proxy = ["localhost", "127.0.0.1", ".internal.company.com"]
+# pass_to_tools = false                # true gives these settings to tool programs started over stdio
 "#;
 
 fn agent_name(name: &str) -> String {

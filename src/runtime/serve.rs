@@ -32,8 +32,12 @@ impl Served {
     /// The current agents. If the file was edited into something broken, the last good version stays.
     pub fn agents(&self) -> Vec<Arc<AgentDef>> {
         // 0.1.2: a parameter edited in metagente.toml applies to the next request
-        if let Ok(params) = super::config::Config::load_parameters(&self.rt.config.root) {
-            self.rt.linker.set_parameters(params);
+        // 0.1.3: and so does a changed [network] section; requests already running keep the settings they started with
+        if let Ok(fresh) = super::config::Config::load_with_env(&self.rt.config.root, &|_| None) {
+            self.rt.linker.set_parameters(fresh.parameters);
+            if self.rt.net.reload(fresh.network) {
+                self.rt.mcp.forget_all();
+            }
         }
         match self.rt.linker.load(&self.file) {
             Ok(agents) if crate::lang::check::check_all(&agents).is_empty() => {

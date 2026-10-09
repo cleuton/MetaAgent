@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod interpreter;
+pub mod net; // 0.1.3: certificates, proxies and plain-language network failures
 pub mod permissions;
 pub mod run;
 pub mod scaffold;
@@ -9,7 +10,6 @@ pub mod serve;
 pub mod task;
 pub mod think;
 pub mod value;
-pub mod web;
 
 use crate::llm::Llm;
 use crate::tools::state::StateMap;
@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 pub struct Runtime {
     pub config: Config,
     pub llm: Option<Arc<dyn Llm>>,
-    pub http: reqwest::Client,
+    pub net: Arc<net::ClientSet>, // 0.1.3: one place for certificates, proxies and clients
     pub mcp: crate::mcp::McpPool,
     pub linker: crate::link::Linker,
     states: Mutex<HashMap<String, StateMap>>,
@@ -29,14 +29,23 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new(config: Config, llm: Option<Arc<dyn Llm>>) -> Arc<Runtime> {
-        let http = web::build_client();
+        let net = Arc::new(net::ClientSet::for_config(&config));
+        Self::with_net(config, llm, net)
+    }
+
+    /// 0.1.3: like `new`, sharing the network clients with the language model provider that was built with them.
+    pub fn with_net(
+        config: Config,
+        llm: Option<Arc<dyn Llm>>,
+        net: Arc<net::ClientSet>,
+    ) -> Arc<Runtime> {
         // 0.1.2: agents loaded with `link` read the parameters of the agent that loaded them
         let linker: crate::link::Linker = Default::default();
         linker.set_parameters(config.parameters.clone());
         Arc::new(Runtime {
             config,
             llm,
-            http,
+            net,
             mcp: Default::default(),
             linker,
             states: Mutex::new(HashMap::new()),
@@ -59,6 +68,16 @@ impl Runtime {
         }
         for name in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"] {
             hidden.push(name.to_string());
+        }
+        // 0.1.3: the proxy login is as private as the model key
+        for name in [
+            &self.config.network.proxy.username_env,
+            &self.config.network.proxy.password_env,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            hidden.push(name.clone());
         }
         hidden
     }

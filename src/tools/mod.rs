@@ -198,7 +198,8 @@ fn build_tool(
         ToolKind::File { scope } => {
             Arc::new(file::FileTool::new(rt.config.root.clone(), scope.clone()))
         }
-        ToolKind::Http => Arc::new(http::HttpTool::new(rt.http.clone())),
+        // 0.1.3: certificates and proxies come from [network]
+        ToolKind::Http => Arc::new(http::HttpTool::new(rt.net.clone())),
         ToolKind::State => Arc::new(state::StateTool::new(rt.state_for(&def.name))),
         ToolKind::Clock => Arc::new(clock::ClockTool),
         ToolKind::Env { names } => {

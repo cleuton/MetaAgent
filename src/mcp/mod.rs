@@ -15,13 +15,24 @@ pub struct McpPool {
 }
 
 impl McpPool {
-    pub fn get(&self, command: &str) -> Arc<McpConnection> {
+    pub fn get(
+        &self,
+        command: &str,
+        net: &Arc<crate::runtime::net::ClientSet>,
+    ) -> Arc<McpConnection> {
         match self.connections.lock() {
             Ok(mut map) => map
                 .entry(command.to_string())
-                .or_insert_with(|| Arc::new(McpConnection::new(command.to_string())))
+                .or_insert_with(|| Arc::new(McpConnection::new(command.to_string(), net.clone())))
                 .clone(),
-            Err(_) => Arc::new(McpConnection::new(command.to_string())),
+            Err(_) => Arc::new(McpConnection::new(command.to_string(), net.clone())),
+        }
+    }
+
+    /// 0.1.3: forget every connection, so the next call connects again with the current `[network]` settings.
+    pub fn forget_all(&self) {
+        if let Ok(mut map) = self.connections.lock() {
+            map.clear();
         }
     }
 }

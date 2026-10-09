@@ -47,10 +47,19 @@ fn json_response(status: StatusCode, body: Json) -> Response {
 }
 
 fn base_of(state: &A2aState, headers: &HeaderMap) -> String {
+    // 0.1.3: behind a reverse proxy that ends https, the card must advertise https, or clients would refuse to follow it
+    let scheme = match headers
+        .get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.trim().to_ascii_lowercase())
+    {
+        Some(s) if s == "https" => "https",
+        _ => "http",
+    };
     headers
         .get(header::HOST)
         .and_then(|h| h.to_str().ok())
-        .map(|h| format!("http://{}", h))
+        .map(|h| format!("{}://{}", scheme, h))
         .unwrap_or_else(|| state.base.clone())
 }
 

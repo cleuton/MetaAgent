@@ -31,19 +31,18 @@ impl RemoteTool {
         }
     }
 
-    fn unreachable(&self, url: &str, e: &reqwest::Error) -> ToolError {
-        let why = if e.is_connect() {
-            "the connection failed"
-        } else if e.is_timeout() {
-            "it took too long"
-        } else {
-            "the request did not complete"
-        };
-        ToolError::new(format!(
-            "I could not reach {} (remote agent {}): {}",
-            url, self.decl.name, why
-        ))
-        .fix("check the address, and that the other agent is being served (metagente serve)")
+    /// 0.1.3: certificate, proxy and connection problems, each in plain words.
+    async fn unreachable(&self, url: &str, e: &reqwest::Error) -> ToolError {
+        self.rt
+            .net
+            .explain(
+                e,
+                url,
+                &format!("remote agent {}", self.decl.name),
+                "check the address, and that the other agent is being served (metagente serve)",
+                crate::runtime::net::Purpose::Agents,
+            )
+            .await
     }
 
     async fn card(&self) -> Result<&Card, ToolError> {
@@ -51,7 +50,11 @@ impl RemoteTool {
             .get_or_try_init(|| async {
                 let base = self.decl.url.trim_end_matches('/');
                 let url = format!("{}/.well-known/agent-card.json", base);
-                let response = self.rt.http.get(&url).send().await.map_err(|e| self.unreachable(&url, &e))?;
+                let client = self.rt.net.agents_for(&url)?;
+                let response = match client.get(&url).send().await {
+                    Ok(r) => r,
+                    Err(e) => return Err(self.unreachable(&url, &e).await),
+                };
                 if !response.status().is_success() {
                     return Err(ToolError::new(format!(
                         "{} answered {} when I asked for the agent card of {}",
@@ -86,6 +89,24 @@ impl RemoteTool {
                     .and_then(|u| u.as_str())
                     .ok_or_else(|| ToolError::new(format!("the agent card of {} has no address to send tasks to", self.decl.name)))?
                     .to_string();
+                // 0.1.3: a card fetched over https must not send tasks to plain http; another host is worth a warning
+                if let (Ok(from), Ok(to)) = (reqwest::Url::parse(base), reqwest::Url::parse(&endpoint)) {
+                    let from_shown = crate::runtime::net::redact(base);
+                    let to_shown = crate::runtime::net::redact(&endpoint);
+                    if from.scheme() == "https" && to.scheme() == "http" {
+                        return Err(ToolError::new(format!(
+                            "the agent card of {} points tasks to {}, which is less secure than {}; I will not follow it",
+                            self.decl.name, to_shown, from_shown
+                        ))
+                        .fix("serve the agent over https, so its card points to an https address"));
+                    }
+                    if from.host_str() != to.host_str() {
+                        eprintln!(
+                            "Warning: the agent card of {} points tasks to {}, a different host than {}",
+                            self.decl.name, to_shown, from_shown
+                        );
+                    }
+                }
                 let skills = card
                     .get("skills")
                     .and_then(|s| s.as_array())
@@ -107,16 +128,18 @@ impl RemoteTool {
     async fn rpc(&self, endpoint: &str, method: &str, params: Json) -> Result<Json, ToolError> {
         let body =
             json!({"jsonrpc": "2.0", "id": new_id("req"), "method": method, "params": params});
-        let response = self
-            .rt
-            .http
+        let client = self.rt.net.agents_for(endpoint)?;
+        let response = match client
             .post(endpoint)
             .header("A2A-Version", PROTOCOL_VERSION)
             .header("Content-Type", "application/json")
             .body(body.to_string())
             .send()
             .await
-            .map_err(|e| self.unreachable(endpoint, &e))?;
+        {
+            Ok(r) => r,
+            Err(e) => return Err(self.unreachable(endpoint, &e).await),
+        };
         let answer: Json = response.json().await.map_err(|_| {
             ToolError::new(format!("{} did not answer with readable data", endpoint))
                 .fix("check that the address belongs to an A2A agent")

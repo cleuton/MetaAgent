@@ -1,0 +1,8 @@
+# A Metagente agent that a Python program can call (see README.md in this folder).
+# Start it:  metagente serve greeter.ag --a2a 8081
+# Then call it from Python:  python python_client.py http://127.0.0.1:8081 --message "greet name=Ana"
+agent Greeter
+  goal "Greet people"
+  accepts greet name
+  on greet
+    reply "Hello, {name}! This greeting came from Metagente."

@@ -15,7 +15,7 @@ enum Kind {
 
 pub struct HttpLlm {
     kind: Kind,
-    client: reqwest::Client,
+    net: Arc<crate::runtime::net::ClientSet>, // 0.1.3
     base_url: String,
     model: String,
     key_env: String,
@@ -24,6 +24,18 @@ pub struct HttpLlm {
 
 /// Builds the configured provider, or `None` when no model is set up.
 pub fn from_config(config: &Config) -> Result<Option<Arc<dyn Llm>>, Diagnostic> {
+    // 0.1.3: own network clients, made from the same settings
+    from_config_with(
+        config,
+        Arc::new(crate::runtime::net::ClientSet::for_config(config)),
+    )
+}
+
+/// 0.1.3: like `from_config`, sharing the network clients (and so a changed `[network]`) with the runtime.
+pub fn from_config_with(
+    config: &Config,
+    net: Arc<crate::runtime::net::ClientSet>,
+) -> Result<Option<Arc<dyn Llm>>, Diagnostic> {
     let Some(provider) = config.llm.provider.as_deref() else {
         return Ok(None);
     };
@@ -57,10 +69,9 @@ pub fn from_config(config: &Config) -> Result<Option<Arc<dyn Llm>>, Diagnostic> 
             Diagnostic::new(format!("the provider `{}` needs a model name", provider))
                 .fix("add model = \"...\" to the [llm] section of metagente.toml")
         })?;
-    let client = crate::runtime::web::build_client();
     Ok(Some(Arc::new(HttpLlm {
         kind,
-        client,
+        net,
         base_url: config
             .llm
             .base_url
@@ -218,11 +229,12 @@ impl Llm for HttpLlm {
     async fn complete(&self, request: &LlmRequest) -> Result<LlmReply, String> {
         let key = std::env::var(&self.key_env)
             .map_err(|_| format!("the variable {} is not set", self.key_env))?;
+        // 0.1.3: the model has its own client, with its own certificate switch
+        let client = self.net.model().map_err(|e| e.to_text())?;
         let (url, builder, body) = match self.kind {
             Kind::Anthropic => {
                 let url = format!("{}/v1/messages", self.base_url);
-                let b = self
-                    .client
+                let b = client
                     .post(&url)
                     .header("x-api-key", key)
                     .header("anthropic-version", "2023-06-01");
@@ -234,15 +246,30 @@ impl Llm for HttpLlm {
                 } else {
                     format!("{}/v1/chat/completions", self.base_url)
                 };
-                let b = self.client.post(&url).bearer_auth(key);
+                let b = client.post(&url).bearer_auth(key);
                 (url, b, self.openai_body(request))
             }
         };
-        let response = builder
-            .json(&body)
-            .send()
-            .await
-            .map_err(|_| format!("I could not reach {}", url))?;
+        let response = match builder.json(&body).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                // 0.1.3: certificate and proxy problems get their own plain sentences
+                let said = self
+                    .net
+                    .explain(
+                        &e,
+                        &url,
+                        "language model",
+                        "check the address of the model server and your connection",
+                        crate::runtime::net::Purpose::Model,
+                    )
+                    .await;
+                return Err(match said.fix {
+                    Some(f) => format!("{} ({})", said.message, f),
+                    None => said.message,
+                });
+            }
+        };
         let status = response.status();
         let json: Value = response
             .json()

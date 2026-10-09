@@ -17,7 +17,8 @@ impl McpTool {
     pub fn new(rt: Arc<Runtime>, name: String, command: String) -> McpTool {
         McpTool {
             name,
-            connection: rt.mcp.get(&command),
+            // 0.1.3: the connection shares the network settings
+            connection: rt.mcp.get(&command, &rt.net),
         }
     }
 }

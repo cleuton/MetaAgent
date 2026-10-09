@@ -670,7 +670,7 @@ Fix: write its value in quotes in metagente.toml, for example: retries = "3"
 | `metagente check FILE.ag` | Look for problems without running. Since 0.1.2 it also verifies that every `@parameters.name` exists in `metagente.toml`. |
 | `metagente new NAME` | Create a starter agent and `metagente.toml`. |
 | `metagente serve FILE.ag --a2a PORT --mcp stdio` | Keep agents running for other programs. Local only unless `--public`. |
-| `metagente --version` | Show the version (`metagente 0.1.2`). |
+| `metagente --version` | Show the version (`metagente 0.1.3`). |
 
 Examples:
 
@@ -693,3 +693,10 @@ metagente serve weather.ag --mcp 9000
 - Two new errors: a text with many lines that is not closed, and a parameter that does not exist.
 - `metagente check` verifies parameters; `metagente new` writes a commented `[parameters]` example.
 - Everything that worked in 0.1.1 works in 0.1.2 and behaves the same way.
+
+## Changes in 0.1.3
+
+**No syntax changed.** There are no new words, no new lines and no new ways to write an agent. Version 0.1.3 adds
+`https://` addresses, proxies and certificate settings, which live in `metagente.toml` and never in an agent. An
+address that starts with `https://` is written in `remote` and `tool ... from mcp` exactly like an `http://` one.
+See [Secure connections](../README.md#secure-connections).

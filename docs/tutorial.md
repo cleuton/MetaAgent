@@ -193,6 +193,20 @@ agent Trip
 
 Serving is limited to your own computer unless you add `--public` (there is no login in this version,
 so be careful). 
+## 10. Secure connections
+
+An address that starts with `https://` works in `remote`, in `tool ... from mcp` and in `http.get`, with no change to your
+agent:
+
+```text
+remote Bob at "https://agents.example.com/weather"
+```
+
+Certificates are checked for you. For a company proxy that asks for a login, a self-signed certificate on your
+laptop, or a private model gateway, you add a few lines to `metagente.toml` (never to the agent). They are explained,
+with copy and paste examples, in [Secure connections](../README.md#secure-connections). Python programs can call your
+agents and your agents can call Python ones: see [examples/python_interop](../examples/python_interop/).
+
 ## Where next
 
 - Decisions, loops and putting results together: [guide.md](guide.md)

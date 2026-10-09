@@ -1,0 +1,10 @@
+# A Metagente agent that asks a Python agent for help (see README.md in this folder).
+# First start the Python agent:  python python_agent.py --port 9100
+# Then run this one:             metagente run caller.ag shout_it text=hello
+agent Caller
+  goal "Ask a Python agent to shout"
+  remote Pyra at "http://127.0.0.1:9100"
+  accepts shout_it text
+  on shout_it
+    loud = Pyra.shout text: text
+    reply "Pyra says: {loud}"

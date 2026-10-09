@@ -4,6 +4,7 @@ use crate::runtime::value::Value;
 use crate::tools::{ActionInfo, Args, ParamInfo, ToolError, closest_name};
 use rmcp::model::{CallToolRequestParams, Tool as McpToolInfo};
 use rmcp::service::RunningService;
+use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig; // 0.1.3
 use rmcp::transport::{ConfigureCommandExt, StreamableHttpClientTransport, TokioChildProcess};
 use rmcp::{RoleClient, ServiceExt};
 use tokio::sync::Mutex;
@@ -15,6 +16,7 @@ struct Live {
 
 pub struct McpConnection {
     command: String,
+    net: std::sync::Arc<crate::runtime::net::ClientSet>, // 0.1.3: certificates, proxy, and what tool programs inherit
     live: Mutex<Option<Live>>,
 }
 
@@ -48,9 +50,13 @@ pub fn split_command(line: &str) -> Vec<String> {
 }
 
 impl McpConnection {
-    pub fn new(command: String) -> McpConnection {
+    pub fn new(
+        command: String,
+        net: std::sync::Arc<crate::runtime::net::ClientSet>,
+    ) -> McpConnection {
         McpConnection {
             command,
+            net,
             live: Mutex::new(None),
         }
     }
@@ -65,15 +71,45 @@ impl McpConnection {
         };
         let service = if self.command.starts_with("http://") || self.command.starts_with("https://")
         {
-            let transport = StreamableHttpClientTransport::from_uri(self.command.clone());
-            ().serve(transport).await.map_err(|e| {
-                ToolError::new(format!(
-                    "I could not connect to the tool server at {}: {}",
-                    self.command,
-                    short(&e.to_string())
-                ))
-                .fix("check the address and that the server is running")
-            })?
+            // 0.1.3: the same certificate and proxy rules as every other connection
+            let client = self.net.mcp_for(&self.command)?;
+            let transport = StreamableHttpClientTransport::with_client(
+                client,
+                StreamableHttpClientTransportConfig::with_uri(self.command.clone()),
+            );
+            match ().serve(transport).await {
+                Ok(service) => service,
+                Err(e) => {
+                    let who = format!("tool server {}", self.command);
+                    let known = self.net.classify_wrapped(
+                        &e,
+                        &self.command,
+                        &who,
+                        "check the address and that the server is running",
+                    );
+                    let text = short(&e.to_string());
+                    drop(e);
+                    if let Some(outcome) = known {
+                        return Err(self.net.finish(outcome).await);
+                    }
+                    if let Some(plain) = self
+                        .net
+                        .diagnose(
+                            &self.command,
+                            &who,
+                            "check the address and that the server is running",
+                        )
+                        .await
+                    {
+                        return Err(plain);
+                    }
+                    return Err(ToolError::new(format!(
+                        "I could not connect to the tool server at {}: {}",
+                        self.command, text
+                    ))
+                    .fix("check the address and that the server is running"));
+                }
+            }
         } else {
             let words = split_command(&self.command);
             let Some((program, rest)) = words.split_first() else {
@@ -84,6 +120,10 @@ impl McpConnection {
                 TokioChildProcess::new(tokio::process::Command::new(program).configure(|cmd| {
                     cmd.args(rest);
                     cmd.stderr(std::process::Stdio::null());
+                    // 0.1.3: only with pass_to_tools, and only for this child process
+                    for (name, value) in self.net.child_environment() {
+                        cmd.env(name, value);
+                    }
                 }))
                 .map_err(|e| start_failed(e.to_string()))?;
             ().serve(transport)

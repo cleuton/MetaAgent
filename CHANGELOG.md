@@ -4,6 +4,41 @@ All notable changes to Metagente are recorded here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## v0.1.3 - 2026-10-09
+
+Secure connections and Python interoperability. Everything that worked in 0.1.2 works the same way, and the `.ag`
+language did not change.
+
+### Added
+- `https://` addresses work everywhere an address is accepted: `remote`, `tool ... from mcp`, the `http` tool and the
+  language model. Certificates are checked with the computer's certificates, with the ones built into the program as a
+  fallback.
+- The `[network]` section of `metagente.toml`: `allow_self_signed`, `llm_allow_self_signed`, `self_signed_hosts`,
+  `ca_file`, and `[network.proxy]` with `url`, `username_env`, `password_env`, `no_proxy`, `pass_to_tools`.
+- Proxies: `CONNECT` tunnels for `https` addresses, plain proxying for `http` ones, Basic login read from environment
+  variables named in the file (a literal user name or password is refused), `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`
+  when the file has no proxy, and `no_proxy`.
+- A warning on every `run`, `serve` and `check` while certificate checks are off, one line for agents and tools and
+  another for the language model.
+- `pass_to_tools`: the proxy settings reach tool programs started over stdio (with a warning in `check`).
+- Plain-language messages for untrusted, expired and misnamed certificates, refused redirects and card downgrades,
+  and for every proxy failure (login refused, other login scheme, tunnel refused, unreachable, silent).
+- A changed `[network]` section applies to the next request under `metagente serve`.
+- `metagente new` writes a commented `[network]` example; `metagente check` validates the section and says which proxy
+  is in use.
+- Python interoperability tests with the official `a2a-sdk` 1.2.0 in both directions: plain http, https with a
+  self-signed certificate, and through an authenticated proxy (`tests/interop/`, `tests/integration/python_interop.rs`).
+- The example `examples/python_interop/`.
+
+### Changed
+- An agent served behind a reverse proxy that sends `X-Forwarded-Proto: https` advertises `https://` addresses in its
+  Agent Card.
+- The three separate web clients (agents, tools and the model, and the MCP library's own) are now one, built from the
+  same settings.
+- Source code changed for this release carries a comment starting with `0.1.3:`.
+- `tests/unit/change_markers.rs` now checks the 0.1.3 markers and version as well (the 0.1.2 file lists are unchanged,
+  except that `Cargo.toml` is no longer a 0.1.2-only file).
+
 ## v0.1.2 - 2026-10-06
 
 Multi-line text and external parameters. Everything that worked in 0.1.1 works the same way.

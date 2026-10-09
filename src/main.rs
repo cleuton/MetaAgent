@@ -46,6 +46,13 @@ enum Command {
     New { name: String },
 }
 
+/// 0.1.3: certificate checks that are off are announced on every run, serve and check, and the agent cannot silence them.
+fn print_network_warnings(net: &metagente::runtime::config::NetworkConfig) {
+    for w in metagente::runtime::net::startup_warnings(net) {
+        eprintln!("Warning: {}", w);
+    }
+}
+
 fn project_dir_of(file: &std::path::Path) -> PathBuf {
     let _ = file;
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
@@ -76,6 +83,7 @@ async fn main() -> ExitCode {
             for w in &rt.config.warnings {
                 eprintln!("Note: {}", w);
             }
+            print_network_warnings(&rt.config.network); // 0.1.3
             let opts = RunOptions {
                 file,
                 message,
@@ -106,7 +114,26 @@ async fn main() -> ExitCode {
                 ExitCode::from(1)
             }
             Ok(agents) => {
+                // 0.1.3: [network] problems are errors; certificate checks that are off are warnings
+                let mut network_problems = Vec::new();
+                match metagente::runtime::config::Config::network_for_check(&project_dir_of(&file))
+                {
+                    Err(d) => network_problems.push(d),
+                    Ok(net) => {
+                        print_network_warnings(&net);
+                        if let Some(w) = metagente::runtime::net::pass_to_tools_warning(&net) {
+                            eprintln!("Warning: {}", w);
+                        }
+                        let (notes, problems) =
+                            metagente::runtime::net::check_lines(&net, &|n| std::env::var(n).ok());
+                        for n in &notes {
+                            println!("Note: {}", n);
+                        }
+                        network_problems.extend(problems);
+                    }
+                }
                 let mut problems = metagente::lang::check::check_all(&agents);
+                problems.extend(network_problems);
                 if let Ok(rt) =
                     build_runtime(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
                 {
@@ -187,6 +214,7 @@ async fn main() -> ExitCode {
             for w in &rt.config.warnings {
                 eprintln!("Note: {}", w);
             }
+            print_network_warnings(&rt.config.network); // 0.1.3
             match serve(
                 ServeOptions {
                     file,

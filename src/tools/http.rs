@@ -6,12 +6,12 @@ use crate::runtime::value::Value;
 use async_trait::async_trait;
 
 pub struct HttpTool {
-    client: reqwest::Client,
+    net: std::sync::Arc<crate::runtime::net::ClientSet>, // 0.1.3: certificates and proxies come from [network]
 }
 
 impl HttpTool {
-    pub fn new(client: reqwest::Client) -> HttpTool {
-        HttpTool { client }
+    pub fn new(net: std::sync::Arc<crate::runtime::net::ClientSet>) -> HttpTool {
+        HttpTool { net }
     }
 
     async fn finish(
@@ -19,17 +19,21 @@ impl HttpTool {
         url: &str,
         request: reqwest::RequestBuilder,
     ) -> Result<Value, ToolError> {
-        let response = request.send().await.map_err(|e| {
-            let why = if e.is_connect() {
-                "the connection failed".to_string()
-            } else if e.is_timeout() {
-                "the server took too long".to_string()
-            } else {
-                "the request did not complete".to_string()
-            };
-            ToolError::new(format!("I could not reach {}: {}", url, why))
-                .fix("check the address and your internet connection")
-        })?;
+        let response = match request.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Err(self
+                    .net
+                    .explain(
+                        &e,
+                        url,
+                        "",
+                        "check the address and your internet connection",
+                        crate::runtime::net::Purpose::Agents,
+                    )
+                    .await);
+            }
+        };
         let status = response.status().as_u16();
         let text = response.text().await.map_err(|_| {
             ToolError::new(format!(
@@ -72,15 +76,17 @@ impl Tool for HttpTool {
             "get" => {
                 let url = need_text("http", "get", &args, "url")?;
                 check_url(&url)?;
-                self.finish(&url, self.client.get(&url)).await
+                let client = self.net.agents_for(&url)?;
+                self.finish(&url, client.get(&url)).await
             }
             "post" => {
                 let url = need_text("http", "post", &args, "url")?;
                 check_url(&url)?;
+                let client = self.net.agents_for(&url)?;
                 let request = match args.get("body") {
-                    Some(Value::Text(t)) => self.client.post(&url).body(t.clone()),
-                    Some(Value::Nothing) | None => self.client.post(&url),
-                    Some(other) => self.client.post(&url).json(&other.to_json()),
+                    Some(Value::Text(t)) => client.post(&url).body(t.clone()),
+                    Some(Value::Nothing) | None => client.post(&url),
+                    Some(other) => client.post(&url).json(&other.to_json()),
                 };
                 self.finish(&url, request).await
             }

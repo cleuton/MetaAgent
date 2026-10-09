@@ -84,8 +84,10 @@ pub fn pick_agent(
 /// Builds the runtime for a project: configuration, and the model when one is set up.
 pub fn build_runtime(start: &Path) -> MgResult<Arc<Runtime>> {
     let config = Config::load(start)?;
-    let llm = crate::llm::providers::from_config(&config)?;
-    Ok(Runtime::new(config, llm))
+    // 0.1.3: the model provider and the agents share one set of network clients
+    let net = Arc::new(super::net::ClientSet::for_config(&config));
+    let llm = crate::llm::providers::from_config_with(&config, net.clone())?;
+    Ok(Runtime::with_net(config, llm, net))
 }
 
 pub async fn run_file(opts: &RunOptions, rt: Arc<Runtime>) -> MgResult<Value> {

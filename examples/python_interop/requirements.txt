@@ -1,0 +1,2 @@
+# The Python packages for this example are the ones of the interop tests.
+-r ../../tests/interop/requirements.txt
