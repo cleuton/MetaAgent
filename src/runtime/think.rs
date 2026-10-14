@@ -32,6 +32,20 @@ pub async fn think(
             .diag(span, "this agent needs a language model to think, and none is set up")
             .fix("run `metagente new` to create a metagente.toml, or add an [llm] section to it (see the tutorial)"));
     };
+    // 0.1.3: an http model address is refused for `[secure] llm` and for a secure agent, before anything is sent
+    if let Some(address) = crate::llm::providers::model_address(&agent.rt.config) {
+        crate::runtime::secure::decide(
+            &agent.rt.net.secure(),
+            &crate::runtime::secure::Caller::new(&agent.def.name, ctx.secure),
+            crate::runtime::secure::Target::Model,
+            &address,
+        )
+        .map_err(|e| {
+            let mut d = agent.diag(span, e.message);
+            d.suggestion = e.fix;
+            d
+        })?;
+    }
     // What the model may use: exactly the tools this agent declared.
     let mut specs = Vec::new();
     let mut names: Vec<&String> = agent.tools.keys().collect();

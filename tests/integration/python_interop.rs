@@ -105,16 +105,29 @@ async fn metagente_calls_a_self_signed_python_agent_only_when_allowed() {
     assert_eq!(reply.to_display(), "echo: hi | HI!");
 }
 
+// 0.1.3: `metagente serve` answers over HTTPS itself (--tls-cert and --tls-key): no forwarder stands in front of it
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_python_client_calls_a_metagente_agent_over_https_with_a_self_signed_certificate() {
+async fn a_python_client_calls_a_metagente_agent_over_https_served_by_metagente_itself() {
     let Some(py) = python_or_skip() else { return };
     let certs = tempfile::tempdir().unwrap();
     let (cert, key) = make_cert(&py, certs.path());
     let dir = tempfile::tempdir().unwrap();
-    let server = a2a::start(dir.path(), WEATHER, None).await;
-    let target: u16 = server.base.rsplit(':').next().unwrap().parse().unwrap();
-    let (_front, https) = start_front(&py, target, &cert, &key);
-
+    std::fs::write(dir.path().join("weather.ag"), WEATHER).unwrap();
+    let port = crate::common::self_signed::free_port();
+    let _serve = crate::common::self_signed::ServeProc::start(
+        dir.path(),
+        &[
+            "weather.ag".to_string(),
+            "--a2a".to_string(),
+            port.to_string(),
+            "--tls-cert".to_string(),
+            cert.display().to_string(),
+            "--tls-key".to_string(),
+            key.display().to_string(),
+        ],
+        1,
+    );
+    let https = format!("https://127.0.0.1:{}", port);
     // by default the Python client refuses the certificate too
     assert!(client(&py, &https, &[]).is_err());
     let seen = client(&py, &https, &["--insecure"]).unwrap();

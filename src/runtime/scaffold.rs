@@ -18,12 +18,21 @@ think_max_steps = 10      # how many steps `think` may take
 [serve]
 a2a_port = 8080
 bind = "127.0.0.1"        # only this computer; use --public to open up
+# tls_cert = "certs/dev-cert.pem"   # 0.1.3: give a certificate and a key to serve over https instead of plain http
+# tls_key = "certs/dev-key.pem"
 
 # 0.1.2: texts that agents read as @parameters.name, so you change them here and not in the .ag files.
 # Uncomment and use them in an agent, for example: reply think @parameters.prompt1
 # [parameters]
 # prompt1 = "You are a helpful assistant."
 # a2a_leitor = "http://127.0.0.1:8080"
+
+# 0.1.3: names that MUST be reached over https. Anything listed here is refused when it is called over http://,
+# and a listed agent is served over https only (it needs tls_cert and tls_key in [serve]).
+# [secure]
+# agents = ["Researcher"]              # agent names, exactly as in the .ag files
+# tools = ["weather"]                  # tool names; "http" makes the built in http tool https only
+# llm = false                          # true: the language model address must be https
 
 # 0.1.3: secure connections. https:// addresses just work; these settings are for special cases.
 # [network]

@@ -1,6 +1,6 @@
 [package]
 name = "metagente"
-version = "0.1.3" # 0.1.3: secure connections (HTTPS, proxy) and Python interop
+version = "0.1.3" # 0.1.3: new release
 edition = "2024"
 description = "Metagente: an interpreted 4GL for building AI agents with MCP and A2A built in"
 license = "Apache-2.0"
@@ -29,12 +29,15 @@ futures = "0.3"
 schemars = "1"
 webpki-root-certs = "1"
 base64 = "0.22" # 0.1.3: the proxy login header
-rustls = { version = "0.23", default-features = false } # 0.1.3: to tell certificate problems apart (no new code is downloaded)
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] } # 0.1.3: to tell certificate problems apart and to serve TLS (no new code is downloaded for the client)
+tokio-rustls = "0.26" # 0.1.3: TLS for `metagente serve`
+x509-parser = "0.18" # 0.1.3: the dates of the serving certificate (pure Rust)
+hyper-util = { version = "0.1", features = ["server-auto", "tokio", "service"] } # 0.1.3: the accept loop that serves the routers over TLS
+rustls-pki-types = "1" # 0.1.3: reading the PEM certificate and key
 
 [dev-dependencies]
 tempfile = "3"
 rcgen = "0.14" # 0.1.3: self-signed certificates for the HTTPS test servers
-tokio-rustls = "0.26" # 0.1.3: TLS for the test servers only
 
 [profile.release]
 lto = true

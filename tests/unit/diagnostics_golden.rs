@@ -328,3 +328,197 @@ fn a_parameter_with_braces_that_are_not_a_name() {
         text
     );
 }
+
+// 0.1.3: the messages of the secure list read as plain language (name, address, line, fix; no Rust or TLS text)
+mod secure_messages {
+    use super::{assert_plain, located};
+    use metagente::lang::parse_file;
+    use metagente::runtime::config::SecureConfig;
+    use metagente::runtime::secure::{Caller, Target, check_agents, decide};
+    use std::sync::Arc;
+
+    fn list(agents: &[&str], tools: &[&str]) -> SecureConfig {
+        SecureConfig {
+            agents: agents.iter().map(|s| s.to_string()).collect(),
+            tools: tools.iter().map(|s| s.to_string()).collect(),
+            ..SecureConfig::default()
+        }
+    }
+
+    fn agents(source: &str) -> Vec<Arc<metagente::lang::AgentDef>> {
+        parse_file("golden.ag", None, source)
+            .unwrap()
+            .into_iter()
+            .map(Arc::new)
+            .collect()
+    }
+
+    #[test]
+    fn s1_a_secure_remote_with_an_http_address() {
+        let a = agents(
+            "agent A\n  goal \"x\"\n  remote Bob at \"http://host:8443\"\n  accepts go\n  on go\n    reply \"x\"\n",
+        );
+        let found = check_agents(&a, &list(&["Bob"], &[]));
+        assert_eq!(found.len(), 1);
+        let text = located(&found[0]);
+        assert!(text.contains("Bob is declared secure in metagente.toml but this address uses http: http://host:8443"), "{}", text);
+        assert!(text.contains("remove Bob from [secure] agents"), "{}", text);
+    }
+
+    #[test]
+    fn s1_a_secure_tool_with_an_http_address() {
+        let a = agents(
+            "agent A\n  goal \"x\"\n  tool kb from mcp \"http://h:9/mcp\"\n  accepts go\n  on go\n    reply \"x\"\n",
+        );
+        let found = check_agents(&a, &list(&[], &["kb"]));
+        assert_eq!(found.len(), 1);
+        let text = located(&found[0]);
+        assert!(text.contains("kb is declared secure"), "{}", text);
+        assert!(text.contains("[secure] tools"), "{}", text);
+    }
+
+    #[test]
+    fn s1_the_builtin_http_tool_with_a_literal_http_address() {
+        let a = agents(
+            "agent A\n  goal \"x\"\n  tool http\n  accepts go\n  on go\n    r = http.get url: \"http://example.com\"\n    reply r.status\n",
+        );
+        let found = check_agents(&a, &list(&[], &["http"]));
+        assert_eq!(found.len(), 1);
+        located(&found[0]);
+    }
+
+    #[test]
+    fn s2_a_secure_agent_with_an_http_address() {
+        let a = agents(
+            "agent Researcher\n  goal \"x\"\n  remote Facts at \"http://h:1\"\n  accepts go\n  on go\n    reply \"x\"\n",
+        );
+        let found = check_agents(&a, &list(&["Researcher"], &[]));
+        assert_eq!(found.len(), 1);
+        let text = located(&found[0]);
+        assert!(
+            text.contains("Researcher is declared secure, so it may only call https addresses"),
+            "{}",
+            text
+        );
+    }
+
+    #[test]
+    fn s8_the_model_address_with_llm_on() {
+        let l = SecureConfig {
+            llm: true,
+            ..SecureConfig::default()
+        };
+        let e = decide(
+            &l,
+            &Caller::new("A", false),
+            Target::Model,
+            "http://gateway",
+        )
+        .unwrap_err();
+        let text = format!("{}\nFix: {}", e.message, e.fix.unwrap());
+        assert!(text.contains(
+            "The model address in [llm] uses http, and [secure] llm is on. Nothing was sent."
+        ));
+        assert_plain(&text);
+    }
+
+    #[test]
+    fn a_literal_http_address_in_a_free_agent_is_not_reported() {
+        let a = agents(
+            "agent A\n  goal \"x\"\n  remote Bob at \"http://host:8443\"\n  accepts go\n  on go\n    reply \"x\"\n",
+        );
+        assert!(check_agents(&a, &SecureConfig::default()).is_empty());
+    }
+
+    // the serving certificate: S4 and S9 (and the expiry message S10) read as plain language
+    mod serving_certificate {
+        use super::assert_plain;
+        use metagente::runtime::config::ServeTlsConfig;
+        use metagente::runtime::tls::{Pair, load, resolve};
+        use std::path::PathBuf;
+
+        fn text(d: &metagente::diagnostics::Diagnostic) -> String {
+            let t = d.render();
+            assert_plain(&t);
+            assert!(t.contains("Fix: "), "no suggested fix:\n{}", t);
+            t
+        }
+
+        fn pair(dir: &std::path::Path) -> Pair {
+            Pair {
+                cert: dir.join("cert.pem"),
+                key: dir.join("key.pem"),
+                cert_at: Some(("metagente.toml".to_string(), 2)),
+                key_at: Some(("metagente.toml".to_string(), 3)),
+            }
+        }
+
+        #[test]
+        fn s4_a_certificate_without_a_key_and_the_reverse() {
+            let only_cert = ServeTlsConfig {
+                cert: Some(PathBuf::from("cert.pem")),
+                cert_line: 2,
+                file: "metagente.toml".to_string(),
+                ..ServeTlsConfig::default()
+            };
+            let e = resolve(None, None, &only_cert).err().unwrap();
+            let t = text(&e);
+            assert!(
+                t.contains("I have a certificate but no key (tls_key)."),
+                "{}",
+                t
+            );
+            assert!(t.contains("--tls-key"), "{}", t);
+            let only_key = ServeTlsConfig {
+                key: Some(PathBuf::from("key.pem")),
+                key_line: 3,
+                file: "metagente.toml".to_string(),
+                ..ServeTlsConfig::default()
+            };
+            let t = text(&resolve(None, None, &only_key).err().unwrap());
+            assert!(
+                t.contains("I have a key but no certificate (tls_cert)."),
+                "{}",
+                t
+            );
+        }
+
+        #[test]
+        fn s9_files_that_are_missing_or_not_pem() {
+            let dir = tempfile::tempdir().unwrap();
+            let t = text(&load(&pair(dir.path())).err().unwrap());
+            assert!(t.contains("I could not read the certificate file"), "{}", t);
+            assert!(t.contains("the file does not exist"), "{}", t);
+            assert!(
+                t.starts_with("Problem on line 2 of metagente.toml"),
+                "{}",
+                t
+            );
+            std::fs::write(dir.path().join("cert.pem"), "not pem").unwrap();
+            std::fs::write(dir.path().join("key.pem"), "not pem").unwrap();
+            let t = text(&load(&pair(dir.path())).err().unwrap());
+            assert!(t.contains("is not a PEM certificate file"), "{}", t);
+        }
+
+        #[test]
+        fn s9_and_s10_a_key_that_does_not_match_and_a_certificate_that_ran_out() {
+            let dir = tempfile::tempdir().unwrap();
+            let a = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+            let b = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+            std::fs::write(dir.path().join("cert.pem"), a.cert.pem()).unwrap();
+            std::fs::write(dir.path().join("key.pem"), b.signing_key.serialize_pem()).unwrap();
+            let t = text(&load(&pair(dir.path())).err().unwrap());
+            assert!(t.contains("does not match the certificate in"), "{}", t);
+            let mut params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
+            params.not_before = rcgen::date_time_ymd(1999, 1, 1);
+            params.not_after = rcgen::date_time_ymd(2000, 1, 1);
+            let key = rcgen::KeyPair::generate().unwrap();
+            let cert = params.self_signed(&key).unwrap();
+            std::fs::write(dir.path().join("cert.pem"), cert.pem()).unwrap();
+            std::fs::write(dir.path().join("key.pem"), key.serialize_pem()).unwrap();
+            let t = text(&load(&pair(dir.path())).err().unwrap());
+            assert!(t.contains("expired on 2000-01-01"), "{}", t);
+            assert!(t.contains("make a new certificate and key"), "{}", t);
+        }
+    }
+}

@@ -7,11 +7,22 @@ use async_trait::async_trait;
 
 pub struct HttpTool {
     net: std::sync::Arc<crate::runtime::net::ClientSet>, // 0.1.3: certificates and proxies come from [network]
+    caller: String, // 0.1.3: the agent that makes the calls, for the secure rule
 }
 
 impl HttpTool {
-    pub fn new(net: std::sync::Arc<crate::runtime::net::ClientSet>) -> HttpTool {
-        HttpTool { net }
+    pub fn new(net: std::sync::Arc<crate::runtime::net::ClientSet>, caller: String) -> HttpTool {
+        HttpTool { net, caller }
+    }
+
+    /// 0.1.3: an `http://` address is refused when `http` is listed in `[secure] tools` or the agent is secure.
+    fn guard(&self, inherited: bool, url: &str) -> Result<(), ToolError> {
+        crate::runtime::secure::decide(
+            &self.net.secure(),
+            &crate::runtime::secure::Caller::new(&self.caller, inherited),
+            crate::runtime::secure::Target::Tool("http"),
+            url,
+        )
     }
 
     async fn finish(
@@ -71,17 +82,19 @@ impl Tool for HttpTool {
         Ok(describe())
     }
 
-    async fn call(&self, action: &str, args: Args, _ctx: &CallContext) -> Result<Value, ToolError> {
+    async fn call(&self, action: &str, args: Args, ctx: &CallContext) -> Result<Value, ToolError> {
         match action {
             "get" => {
                 let url = need_text("http", "get", &args, "url")?;
                 check_url(&url)?;
+                self.guard(ctx.secure, &url)?; // 0.1.3
                 let client = self.net.agents_for(&url)?;
                 self.finish(&url, client.get(&url)).await
             }
             "post" => {
                 let url = need_text("http", "post", &args, "url")?;
                 check_url(&url)?;
+                self.guard(ctx.secure, &url)?; // 0.1.3
                 let client = self.net.agents_for(&url)?;
                 let request = match args.get("body") {
                     Some(Value::Text(t)) => client.post(&url).body(t.clone()),

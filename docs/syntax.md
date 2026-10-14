@@ -4,12 +4,17 @@ A `.ag` file holds one or more agents. Indentation is **two spaces per level**. 
 comment. Text goes in double quotes, and `{name}` inside text is replaced by the value.
 Text with many lines goes between `"""` and `"""` and is kept exactly as typed (new in 0.1.2).
 A text can also come from `metagente.toml`, written `@parameters.name` (new in 0.1.2).
+**No syntax changed in 0.1.3** (no new keyword, no new grammar rule). The way a program asks for a secure
+connection is the address: `https://` instead of `http://` in a `remote`, a `tool ... from mcp` or an
+`http.get`, written in the file or taken from `@parameters.name` (new in 0.1.3). That an address MUST be https is
+said in `metagente.toml`, see [Secure connections](#secure-connections).
 
 Contents: [Agent](#agent), [Declarations](#declarations), [Handlers](#handlers),
 [Statements](#statements), [Expressions](#expressions), [Text](#text) (new in 0.1.2),
 [Parameters](#parameters) (new in 0.1.2), [Built in tool actions](#built-in-tool-actions),
 [Formal grammar (EBNF)](#formal-grammar-ebnf), [Alphabetical reference](#alphabetical-reference),
-[Errors](#errors), [Commands](#commands), [Changes in 0.1.2](#changes-in-012).
+[Secure connections](#secure-connections) (new in 0.1.3),
+[Errors](#errors), [Commands](#commands), [Changes in 0.1.3](#changes-in-013), [Changes in 0.1.2](#changes-in-012).
 
 ## Agent
 
@@ -26,13 +31,13 @@ agent Name
 |------|---------|
 | `goal "text"` | The purpose of the agent. Required. |
 | `tool file` / `tool file "data/"` | Read and write files inside the project folder (where `metagente.toml` is, or where you started Metagente), or only inside the folder you name. Paths that lead outside, including through `..` or links, are refused. |
-| `tool http` | Web requests. |
+| `tool http` | Web requests. The address may start with `https://` (new in 0.1.3). Listing `http` in `[secure] tools` makes it https only. |
 | `tool state` | The agent's memory. |
 | `tool clock` | Current time and waiting. |
 | `tool env "NAME" "NAME"` | Read only the named environment variables. The variable holding the model key can never be read. |
-| `tool NAME from mcp "command or address"` | An external MCP server, called as `NAME.action`. |
+| `tool NAME from mcp "command or address"` | An external MCP server, called as `NAME.action`. An address may start with `https://` (new in 0.1.3). |
 | `link Name` / `link Name from "path.ag"` | Another Metagente agent (dynamic link). |
-| `remote Name at "https://..."` | A remote A2A agent. |
+| `remote Name at "https://..."` | A remote A2A agent. The address may be `http://` or `https://` (new in 0.1.3: `https://` is checked against the certificates of the computer, and a name listed in `[secure] agents` accepts only `https://`). |
 | `accepts message param param` | A message the agent understands, and its values. A `# comment` on the same line becomes its description. |
 
 Wherever a declaration takes a text in quotes, it also takes `@parameters.name` (new in 0.1.2), for
@@ -631,6 +636,41 @@ name = "World"
 cities = ["Lisbon", "Porto"]
 ```
 
+## Secure connections
+
+*(new in 0.1.3)* Nothing in a `.ag` file says that something must be secure; only `metagente.toml` does, so an
+agent cannot weaken it.
+
+```toml
+[secure]
+agents = ["Bob", "Researcher"]   # agents you call with `remote`, and agents you serve
+tools  = ["weather", "http"]     # tools reached over an address; "http" is the built in tool
+llm    = false                   # true: the model address must be https
+
+[serve]
+tls_cert = "certs/dev-cert.pem"  # the certificate and key `metagente serve` presents (or --tls-cert, --tls-key)
+tls_key  = "certs/dev-key.pem"
+
+[network]
+ca_file = "certs/dev-cert.pem"   # trust this certificate and keep checking (preferred)
+# allow_self_signed = true       # development only; prints a warning on every run, serve and check
+# self_signed_hosts = ["127.0.0.1"]
+# llm_allow_self_signed = false  # the same, for the language model only
+```
+
+- A name in `[secure]` called over `http://` is refused **before any connection is opened**, in a plain message
+  with the line and the fix. An address from `@parameters.name` is judged after it is resolved.
+- An agent listed in `agents` is secure in every direction: it is served over https only, and every network call its
+  handlers make must be https. An agent it loads with `link` follows the same rule (a linked agent runs in the
+  context of the agent that loaded it, so it uses that agent's `metagente.toml`). Local tools (`stdio`, `file`,
+  `state`, `env`, `clock`) and `link` itself are not network traffic.
+- `metagente serve` with a certificate and key answers https only on every port. A listed agent without them is
+  refused at start and never falls back to http. A secure agent is not served over `--mcp stdio`.
+- Self-signed certificates are accepted only when `metagente.toml` says so (`ca_file`, or `allow_self_signed`). Declaring
+  something secure never turns that on, and turning it on never makes http acceptable for something secure.
+- `[network.proxy]` (`url`, `username_env`, `password_env`, `no_proxy`, `pass_to_tools`) and the standard `HTTPS_PROXY`,
+  `HTTP_PROXY` and `NO_PROXY` variables are described in the [README](../README.md#network-and-networkproxy-every-key).
+
 ## Errors
 
 Every problem says where it is, what went wrong, and how to fix it. Problems that come from outside
@@ -662,14 +702,87 @@ Problem on line 5 of screener.ag: the parameter `retries` is not text
 Fix: write its value in quotes in metagente.toml, for example: retries = "3"
 ```
 
+New in 0.1.3, something declared secure called over `http://`:
+
+```text
+Problem on line 4 of planner.ag: Researcher is declared secure in metagente.toml but this address uses http: http://127.0.0.1:8443
+  4 |   remote Researcher at "http://127.0.0.1:8443"
+    |   ^
+Fix: write https:// instead of http://, or remove Researcher from [secure] agents
+```
+
+New in 0.1.3, a secure agent that makes an `http://` call:
+
+```text
+Problem on line 6 of researcher.ag: Researcher is declared secure, so it may only call https addresses. This address uses http: http://example.com
+Fix: change the address so that it starts with https://
+```
+
+New in 0.1.3, the model, when `[secure] llm` is on:
+
+```text
+Problem on line 5 of recruiter.ag: The model address in [llm] uses http, and [secure] llm is on. Nothing was sent.
+Fix: use an address that starts with https:// in [llm] (base_url), or remove llm from [secure]
+```
+
+New in 0.1.3, `metagente serve` for a secure agent:
+
+```text
+Researcher is declared secure, so I will only serve it over https, but no certificate is set.
+Fix: set tls_cert and tls_key in [serve] of metagente.toml, or use --tls-cert and --tls-key
+```
+
+```text
+I have a certificate but no key (tls_key).
+Fix: add tls_key to [serve] in metagente.toml, or use --tls-key with the PEM file of the private key
+```
+
+```text
+Facts is declared secure and stdio is not https.
+Fix: serve it with --mcp PORT and a certificate (tls_cert and tls_key in [serve], or --tls-cert and --tls-key)
+```
+
+New in 0.1.3, a local tool listed as secure:
+
+```text
+Problem on line 3 of a.ag: files runs as a local program, so it has no address to secure.
+Fix: remove it from [secure] tools, or give the tool an https:// address
+```
+
+New in 0.1.3, a certificate that cannot be used or trusted:
+
+```text
+the key in certs/dev-key.pem does not match the certificate in certs/dev-cert.pem
+Fix: use the key that was made together with this certificate
+```
+
+```text
+Problem on line 7 of planner.ag: I could not trust the certificate of https://127.0.0.1:8443/.well-known/agent-card.json (remote agent Researcher): it was signed by an authority I do not know, for example a self-signed certificate
+Fix: add that authority with ca_file in [network]; for development only you can set allow_self_signed = true
+```
+
+```text
+Problem on line 7 of planner.ag: I could not complete a secure connection to https://127.0.0.1:8443
+Fix: check the port and that the server answers https (an address that starts with https:// needs a server with a certificate); I never retry over http
+```
+
+New in 0.1.3, a card or a redirect that tries to take a call away from https:
+
+```text
+the agent card of Bob points tasks to http://host:9/a2a, which is less secure than https://host:8443; I will not follow it
+Fix: serve the agent over https, so its card points to an https address
+```
+
 ## Commands
 
 | Command | Does |
 |---------|------|
 | `metagente run FILE.ag MESSAGE key=value ...` | Run an agent. Add `--agent Name` to pick one from a file with several. |
-| `metagente check FILE.ag` | Look for problems without running. Since 0.1.2 it also verifies that every `@parameters.name` exists in `metagente.toml`. |
+| `metagente check FILE.ag` | Look for problems without running. Since 0.1.2 it also verifies that every `@parameters.name` exists in `metagente.toml`. Since 0.1.3 it also checks `[secure]` (an `http://` address for a secure name, a name that matches nothing, a local tool listed as secure) and `[network]`. It never needs a certificate. |
 | `metagente new NAME` | Create a starter agent and `metagente.toml`. |
 | `metagente serve FILE.ag --a2a PORT --mcp stdio` | Keep agents running for other programs. Local only unless `--public`. |
+| `metagente serve FILE.ag --mcp PORT` | Serve every agent of the file as MCP tools at `http://HOST:PORT/mcp`. Each message an agent `accepts` is a tool called `Agent.message`, and another agent calls it with `tool NAME from mcp "http://HOST:PORT/mcp"` and `NAME.Agent.message`. See [An agent as a tool](tutorial.md#an-agent-as-a-tool). |
+| `metagente serve FILE.ag --a2a PORT --tls-cert FILE --tls-key FILE` | (new in 0.1.3) Answer over https, from a PEM certificate and key. The flags win over `[serve] tls_cert` and `tls_key`. |
 | `metagente --version` | Show the version (`metagente 0.1.3`). |
 
 Examples:
@@ -696,7 +809,13 @@ metagente serve weather.ag --mcp 9000
 
 ## Changes in 0.1.3
 
-**No syntax changed.** There are no new words, no new lines and no new ways to write an agent. Version 0.1.3 adds
-`https://` addresses, proxies and certificate settings, which live in `metagente.toml` and never in an agent. An
-address that starts with `https://` is written in `remote` and `tool ... from mcp` exactly like an `http://` one.
-See [Secure connections](../README.md#secure-connections).
+- **No syntax changed.** A program asks for a secure connection with `https://` in an address that already exists
+  in the language (`remote`, `tool ... from mcp`, `http.get`), written in the file or taken from a parameter.
+- **`[secure]`** in `metagente.toml` makes agents, tools and the model require https. A secure agent is served
+  over https only, and makes only https calls, also through `link`. See [Secure connections](#secure-connections).
+- **`metagente serve --tls-cert FILE --tls-key FILE`** (or `[serve] tls_cert` and `tls_key`) answers over https, for
+  the A2A and the MCP endpoints.
+- **`[network]` and `[network.proxy]`**: self-signed certificates only when `metagente.toml` says so (`ca_file`,
+  `allow_self_signed`, `self_signed_hosts`, `llm_allow_self_signed`), authenticated proxies, and `pass_to_tools`.
+- New plain-language errors for all of it, and `metagente check` validates it. `metagente new` writes commented examples.
+- Everything that worked in 0.1.2 works in 0.1.3 and behaves the same way.

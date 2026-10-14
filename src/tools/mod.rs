@@ -183,6 +183,7 @@ pub fn build_registry(rt: &Arc<Runtime>, def: &Arc<AgentDef>) -> Result<Registry
             Arc::new(crate::a2a::client::RemoteTool::new(
                 rt.clone(),
                 remote.clone(),
+                def.name.clone(), // 0.1.3: the calling agent, for the secure rule
             )),
         );
     }
@@ -199,7 +200,7 @@ fn build_tool(
             Arc::new(file::FileTool::new(rt.config.root.clone(), scope.clone()))
         }
         // 0.1.3: certificates and proxies come from [network]
-        ToolKind::Http => Arc::new(http::HttpTool::new(rt.net.clone())),
+        ToolKind::Http => Arc::new(http::HttpTool::new(rt.net.clone(), def.name.clone())), // 0.1.3: and the calling agent
         ToolKind::State => Arc::new(state::StateTool::new(rt.state_for(&def.name))),
         ToolKind::Clock => Arc::new(clock::ClockTool),
         ToolKind::Env { names } => {
@@ -210,6 +211,7 @@ fn build_tool(
             rt.clone(),
             decl.name.clone(),
             command.clone(),
+            def.name.clone(), // 0.1.3: the calling agent, for the secure rule
         )),
     })
 }

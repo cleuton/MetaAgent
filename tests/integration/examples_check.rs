@@ -116,3 +116,44 @@ fn the_multiline_example_passes_check() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+// 0.1.3: the sample multi-agent-samples/https-chain. The certificate is not committed, so the test makes it first,
+// as the first step of the sample's README does.
+#[test]
+fn the_https_chain_sample_checks_clean_once_the_certificate_exists() {
+    let sample = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("multi-agent-samples/https-chain");
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["planner.ag", "researcher.ag", "facts.ag", "metagente.toml"] {
+        std::fs::copy(sample.join(name), dir.path().join(name)).unwrap();
+    }
+    // without the certificate the files tell the person what is missing: a warning for what only `serve` needs, an
+    // error for the certificate that is trusted (ca_file)
+    let o = metagente(dir.path())
+        .args(["check", "planner.ag"])
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    assert!(!o.status.success(), "{}", err);
+    assert!(
+        err.contains("Warning: tls_cert in [serve] points to"),
+        "{}",
+        err
+    );
+    assert!(
+        err.contains("I could not read the certificate file"),
+        "{}",
+        err
+    );
+    // with it, every file of the sample passes and nothing is said
+    let readme = std::fs::read_to_string(sample.join("README.md")).unwrap();
+    crate::common::self_signed::sample_certificate(dir.path(), &readme);
+    for name in ["planner.ag", "researcher.ag", "facts.ag"] {
+        let o = metagente(dir.path())
+            .args(["check", name])
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&o.stderr).to_string();
+        assert!(o.status.success(), "{}: {}", name, err);
+        assert!(!err.contains("Warning"), "{}: {}", name, err);
+    }
+}

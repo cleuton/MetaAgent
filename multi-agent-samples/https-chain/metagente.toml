@@ -1,0 +1,18 @@
+# 0.1.3: everything here is about https. Run the openssl command of README.md first: it makes the files in certs/.
+
+# What MUST be reached over https. Anything listed here is refused when it is called over http://,
+# and a listed agent is served over https only.
+[secure]
+agents = ["Planner", "Researcher", "Facts"]
+tools = ["kb"]
+
+# The certificate and the key that `metagente serve` presents.
+[serve]
+tls_cert = "certs/dev-cert.pem"
+tls_key = "certs/dev-key.pem"
+
+# What this computer trusts when it calls the other agents.
+[network]
+ca_file = "certs/dev-cert.pem"        # preferred: trust this one certificate and keep checking it
+# allow_self_signed = true            # the other way, for development only
+# self_signed_hosts = ["127.0.0.1"]   # ... and only for these hosts

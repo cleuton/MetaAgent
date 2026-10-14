@@ -1,0 +1,8 @@
+# 0.1.3: looks a fact up with the Facts tool, which it reaches over MCP and https.
+agent Researcher
+  goal "Look up a fact using a tool served over HTTPS"
+  tool kb from mcp "https://127.0.0.1:9443/mcp"
+  accepts research topic
+  on research
+    fact = kb.Facts.lookup topic: topic
+    reply fact

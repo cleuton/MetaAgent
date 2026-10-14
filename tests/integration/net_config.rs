@@ -325,6 +325,13 @@ fn metagente_new_writes_a_commented_network_example_that_changes_nothing() {
         "# password_env",
         "# no_proxy",
         "# pass_to_tools = false",
+        // 0.1.3: the secure list and the serving certificate
+        "# [secure]",
+        "# agents = [",
+        "# tools = [",
+        "# llm = false",
+        "# tls_cert =",
+        "# tls_key =",
     ] {
         assert!(toml.contains(needle), "metagente.toml lacks `{}`", needle);
     }

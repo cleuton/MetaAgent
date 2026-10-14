@@ -191,21 +191,93 @@ agent Trip
     reply "Bob says: {forecast}"
 ```
 
-Serving is limited to your own computer unless you add `--public` (there is no login in this version,
-so be careful). 
-## 10. Secure connections
+### An agent as a tool
 
-An address that starts with `https://` works in `remote`, in `tool ... from mcp` and in `http.get`, with no change to your
-agent:
+`--mcp` turns an agent into a tool server, with nothing more to write. Every message the agent `accepts` becomes one
+MCP tool, named `Agent.message`. Take this agent:
 
 ```text
-remote Bob at "https://agents.example.com/weather"
+agent Facts
+  goal "Know a few facts"
+  accepts lookup topic
+  on lookup
+    if topic is "rust"
+      reply "Rust is a systems language"
+    otherwise
+      reply "No fact about {topic}"
 ```
 
-Certificates are checked for you. For a company proxy that asks for a login, a self-signed certificate on your
-laptop, or a private model gateway, you add a few lines to `metagente.toml` (never to the agent). They are explained,
-with copy and paste examples, in [Secure connections](../README.md#secure-connections). Python programs can call your
-agents and your agents can call Python ones: see [examples/python_interop](../examples/python_interop/).
+Serve it as a tool server:
+
+```text
+metagente serve facts.ag --mcp 9000
+```
+
+It prints `MCP: http://127.0.0.1:9000/mcp`. That address, with the `/mcp` at the end, is what other programs use. The
+agent offers one tool, `Facts.lookup`. Any MCP client can call it. Another Metagente agent declares it like any
+other tool, and calls it as `name.Agent.message`:
+
+```text
+agent Asker
+  goal "Ask the Facts tool"
+  tool kb from mcp "http://127.0.0.1:9000/mcp"
+  accepts ask topic
+  on ask
+    reply kb.Facts.lookup topic: topic
+```
+
+```text
+metagente run asker.ag ask topic=rust
+Rust is a systems language
+```
+
+So the same agent can be called two ways: as an agent over A2A (`--a2a`, called with `remote`), or as a tool over MCP
+(`--mcp`, called with `tool ... from mcp`). `--mcp stdio` is the same thing for programs that start Metagente
+themselves and talk to it through its standard input and output. To reach a tool server over https, serve it with a
+certificate and write `https://` in the address: see [secure connections](../README.md#serve-over-https).
+
+Serving is limited to your own computer unless you add `--public` (there is no login in this version,
+so be careful).
+
+**Serving over https (new in 0.1.3).** Give `serve` a certificate and a key (see
+[a certificate for development](../README.md#a-certificate-for-development-and-how-to-trust-it)) and it answers
+https only, on every port:
+
+```text
+metagente serve weather.ag --a2a 8443 --tls-cert certs/dev-cert.pem --tls-key certs/dev-key.pem
+```
+
+The card is then at `https://127.0.0.1:8443/.well-known/agent-card.json`. The two files can also be written once as
+`tls_cert` and `tls_key` in the `[serve]` section of `metagente.toml`. Https protects the channel, not who is
+calling: serving is still limited to your own computer unless you add `--public`, and there is still no login in this
+version.
+
+## 10. Secure connections (new in 0.1.3)
+
+To call an agent or a tool over https, write `https://` in its address:
+
+```text
+remote Bob at "https://127.0.0.1:8443"
+```
+
+To make https mandatory for a name, list it in `metagente.toml` (never in the agent file):
+
+```toml
+[secure]
+agents = ["Bob"]
+```
+
+Calling `Bob` over `http://` now stops with a plain message, before anything is sent. An agent listed there is also
+served over https only, and makes only https calls. A self-signed certificate is accepted only when `metagente.toml`
+says so (`ca_file`, or for development `allow_self_signed`).
+
+- Every key, every message and how to make a development certificate: the
+  [README](../README.md#new-in-013-secure-connections-https-on-both-ends).
+- A beginner guide, from "what is a certificate" to the whole chain running over https:
+  [secure-connections-guide.md](secure-connections-guide.md).
+- A complete, runnable chain with three terminals and no model key:
+  [multi-agent-samples/https-chain](../multi-agent-samples/https-chain/README.md).
+- The words of `[secure]` and the errors: [syntax.md](syntax.md#secure-connections).
 
 ## Where next
 

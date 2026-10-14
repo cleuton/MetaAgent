@@ -65,6 +65,14 @@ impl Tool for LinkTool {
         cycle::check(&ctx.chain, &target.name)?;
         interface::check(&target, action, &args)?;
         let agent = Agent::new(self.rt.clone(), target.clone())?;
+        // 0.1.3: a linked agent runs in the context of the agent that loaded it (D14): when the loader is secure, whether
+        // by its own name or because a secure agent loaded it, everything the linked agent calls must be https too
+        let mut ctx = ctx.clone();
+        ctx.secure = crate::runtime::secure::agent_is_secure(
+            &self.rt.net.secure(),
+            &crate::runtime::secure::Caller::new(&self.caller.name, ctx.secure),
+        );
+        let ctx = &ctx;
         agent.handle(action, args, ctx).await.map_err(|d| {
             let mut related = vec![format!("{} could not answer:", target.name)];
             related.extend(d.render().lines().map(|l| format!("  {}", l)));

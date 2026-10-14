@@ -22,6 +22,23 @@ pub struct HttpLlm {
     max_tokens: u32,
 }
 
+/// 0.1.3: the address the model is reached at (`base_url` or the provider's own), or `None` when no model is set up.
+pub fn model_address(config: &Config) -> Option<String> {
+    let provider = config.llm.provider.as_deref()?;
+    let default_base = match provider {
+        "anthropic" => "https://api.anthropic.com",
+        "openai-compatible" | "openai" => "https://api.openai.com",
+        _ => return None,
+    };
+    Some(
+        config
+            .llm
+            .base_url
+            .clone()
+            .unwrap_or_else(|| default_base.to_string()),
+    )
+}
+
 /// Builds the configured provider, or `None` when no model is set up.
 pub fn from_config(config: &Config) -> Result<Option<Arc<dyn Llm>>, Diagnostic> {
     // 0.1.3: own network clients, made from the same settings

@@ -6,9 +6,11 @@ pub mod net; // 0.1.3: certificates, proxies and plain-language network failures
 pub mod permissions;
 pub mod run;
 pub mod scaffold;
+pub mod secure; // 0.1.3: which names must use https, and the rule that refuses http
 pub mod serve;
 pub mod task;
 pub mod think;
+pub mod tls; // 0.1.3: https for `metagente serve`
 pub mod value;
 
 use crate::llm::Llm;

@@ -4,40 +4,38 @@ All notable changes to Metagente are recorded here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## v0.1.3 - 2026-10-09
+## v0.1.3 - 2026-10-13
 
-Secure connections and Python interoperability. Everything that worked in 0.1.2 works the same way, and the `.ag`
-language did not change.
+Secure communication by declaration (HTTPS on both ends). Everything that worked in 0.1.2 works the same way.
 
 ### Added
-- `https://` addresses work everywhere an address is accepted: `remote`, `tool ... from mcp`, the `http` tool and the
-  language model. Certificates are checked with the computer's certificates, with the ones built into the program as a
-  fallback.
-- The `[network]` section of `metagente.toml`: `allow_self_signed`, `llm_allow_self_signed`, `self_signed_hosts`,
-  `ca_file`, and `[network.proxy]` with `url`, `username_env`, `password_env`, `no_proxy`, `pass_to_tools`.
-- Proxies: `CONNECT` tunnels for `https` addresses, plain proxying for `http` ones, Basic login read from environment
-  variables named in the file (a literal user name or password is refused), `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`
-  when the file has no proxy, and `no_proxy`.
-- A warning on every `run`, `serve` and `check` while certificate checks are off, one line for agents and tools and
-  another for the language model.
-- `pass_to_tools`: the proxy settings reach tool programs started over stdio (with a warning in `check`).
-- Plain-language messages for untrusted, expired and misnamed certificates, refused redirects and card downgrades,
-  and for every proxy failure (login refused, other login scheme, tunnel refused, unreachable, silent).
-- A changed `[network]` section applies to the next request under `metagente serve`.
-- `metagente new` writes a commented `[network]` example; `metagente check` validates the section and says which proxy
-  is in use.
-- Python interoperability tests with the official `a2a-sdk` 1.2.0 in both directions: plain http, https with a
-  self-signed certificate, and through an authenticated proxy (`tests/interop/`, `tests/integration/python_interop.rs`).
-- The example `examples/python_interop/`.
+- **Secure by declaration.** The `[secure]` section of `metagente.toml` lists the agents, the tools and the model
+  that MUST use https (`agents`, `tools`, `llm`). Calling one of them over `http://` is refused before any connection
+  is opened, with the line and the fix. An agent in the list is secure in every direction: it is served over https
+  only and makes only https calls (remote agents, tools reached over http, the `http` tool, the model), also through
+  `link`. Nothing changed in the language: a program asks for https by writing `https://` in the address.
+- **`metagente serve` answers over https.** `--tls-cert` and `--tls-key`, or `tls_cert` and `tls_key` in `[serve]`, for
+  the A2A and the MCP endpoint, with a PEM certificate and key (a self-signed pair works). With a certificate every
+  port answers https only; a secure agent never falls back to http and refuses to start without a certificate. The
+  Agent Card advertises `https://` addresses. A change of certificate while serving prints one line asking for a restart.
+- **`[network]`**: `allow_self_signed`, `self_signed_hosts`, `llm_allow_self_signed` (the model has its own switch) and
+  `ca_file`. Certificates are checked by default, with the certificates of the computer and a bundled set as a
+  fallback. Every skipped check prints a warning on every `run`, `serve` and `check`.
+- **`[network.proxy]`**: `url`, `username_env`, `password_env` (a login is only ever the name of an environment
+  variable), `no_proxy` and `pass_to_tools`; `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` are used when there is no `url`.
+- Plain-language errors for certificates (not trusted, expired, wrong name), downgrades from https to http, proxies,
+  and all of the above. `metagente check` validates `[secure]` and `[network]`; `metagente new` writes commented examples.
+- **Python interoperability**, tested against the official `a2a-sdk` in both directions: over plain http, over https
+  with a self-signed certificate (served by Metagente itself, with nothing in front of it) and through an authenticated
+  proxy. `tests/interop/requirements.txt` and `examples/python_interop/`.
+- **Sample `multi-agent-samples/https-chain`**: a Planner calls a Researcher over https, which calls a Facts tool over https.
+  No model key is needed, and the README shows every message of the "break it on purpose" section.
+- Documentation: the README (secure connections, every key, the messages, how to run the Python tests), the tutorial
+  (serving over https, a "Secure connections" step) and `docs/syntax.md` (a "Secure connections" section, the errors, the commands).
 
 ### Changed
-- An agent served behind a reverse proxy that sends `X-Forwarded-Proto: https` advertises `https://` addresses in its
-  Agent Card.
-- The three separate web clients (agents, tools and the model, and the MCP library's own) are now one, built from the
-  same settings.
 - Source code changed for this release carries a comment starting with `0.1.3:`.
-- `tests/unit/change_markers.rs` now checks the 0.1.3 markers and version as well (the 0.1.2 file lists are unchanged,
-  except that `Cargo.toml` is no longer a 0.1.2-only file).
+- `metagente --version` reports `0.1.3`.
 
 ## v0.1.2 - 2026-10-06
 

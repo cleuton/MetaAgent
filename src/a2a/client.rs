@@ -20,14 +20,43 @@ pub struct RemoteTool {
     decl: RemoteDecl,
     rt: Arc<Runtime>,
     card: OnceCell<Card>,
+    /// 0.1.3: the agent whose handler makes the calls, for the secure rule
+    caller: String,
 }
 
 impl RemoteTool {
-    pub fn new(rt: Arc<Runtime>, decl: RemoteDecl) -> RemoteTool {
+    pub fn new(rt: Arc<Runtime>, decl: RemoteDecl, caller: String) -> RemoteTool {
         RemoteTool {
             decl,
             rt,
             card: OnceCell::new(),
+            caller,
+        }
+    }
+
+    /// 0.1.3: refuse an `http://` address for a secure remote or a secure agent, before any connection is opened.
+    fn guard(
+        &self,
+        inherited: bool,
+        address: &str,
+        card_from: Option<&str>,
+    ) -> Result<(), ToolError> {
+        let list = self.rt.net.secure();
+        let caller = crate::runtime::secure::Caller::new(&self.caller, inherited);
+        match card_from {
+            Some(from) => crate::runtime::secure::endpoint_rule(
+                &list,
+                &caller,
+                &self.decl.name,
+                from,
+                address,
+            ),
+            None => crate::runtime::secure::decide(
+                &list,
+                &caller,
+                crate::runtime::secure::Target::Remote(&self.decl.name),
+                address,
+            ),
         }
     }
 
@@ -208,6 +237,7 @@ impl Tool for RemoteTool {
     }
 
     async fn actions(&self) -> Result<Vec<ActionInfo>, ToolError> {
+        self.guard(false, &self.decl.url, None)?; // 0.1.3
         let card = self.card().await?;
         Ok(card
             .skills
@@ -216,8 +246,11 @@ impl Tool for RemoteTool {
             .collect())
     }
 
-    async fn call(&self, action: &str, args: Args, _ctx: &CallContext) -> Result<Value, ToolError> {
+    async fn call(&self, action: &str, args: Args, ctx: &CallContext) -> Result<Value, ToolError> {
+        // 0.1.3: before any connection is opened, and again for where the card sends the tasks
+        self.guard(ctx.secure, &self.decl.url, None)?;
         let card = self.card().await?;
+        self.guard(ctx.secure, &card.endpoint, Some(&self.decl.url))?;
         if !card.skills.iter().any(|(id, _)| id == action) {
             let ids: Vec<&str> = card.skills.iter().map(|(id, _)| id.as_str()).collect();
             let fix = match closest_name(action, ids.iter().copied()) {

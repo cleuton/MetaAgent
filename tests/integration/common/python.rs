@@ -109,29 +109,6 @@ pub fn start_agent(python: &str, tls: Option<(&Path, &Path)>) -> (Guard, String)
     (Guard(child), format!("{}://127.0.0.1:{}", scheme, port))
 }
 
-/// A TLS front (fixture) in front of a plain Metagente A2A port. Returns the guard and the https address.
-pub fn start_front(python: &str, target_port: u16, cert: &Path, key: &Path) -> (Guard, String) {
-    let port = free_port();
-    let mut child = Command::new(python)
-        .arg(root().join("tests/interop/helpers/tls_front.py"))
-        .args([
-            "--listen",
-            &port.to_string(),
-            "--target",
-            &target_port.to_string(),
-        ])
-        .arg("--cert")
-        .arg(cert)
-        .arg("--key")
-        .arg(key)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("start the TLS front");
-    wait_ready(&mut child, "the TLS front");
-    (Guard(child), format!("https://127.0.0.1:{}", port))
-}
-
 /// Runs the Python A2A client and returns what it printed as JSON, or its error text.
 pub fn client(python: &str, base: &str, extra: &[&str]) -> Result<serde_json::Value, String> {
     let out = Command::new(python)

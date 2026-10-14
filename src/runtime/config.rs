@@ -26,6 +26,46 @@ pub struct NetworkConfig {
     pub file: String,
 }
 
+/// 0.1.3: the `[secure]` section: the names that must be reached over https only.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SecureConfig {
+    /// Agent names, exactly as in the `.ag` files (case sensitive).
+    pub agents: Vec<String>,
+    /// Tool names (MCP over http addresses, or `http` for the built in tool).
+    pub tools: Vec<String>,
+    /// The language model address must be https.
+    pub llm: bool,
+    /// The lines of the keys in metagente.toml, for messages (0 when unknown).
+    pub agents_line: usize,
+    pub tools_line: usize,
+    pub llm_line: usize,
+    /// The metagente.toml these settings came from ("" when there is none).
+    pub file: String,
+}
+
+impl SecureConfig {
+    /// True when `name` is listed in `[secure] agents`.
+    pub fn lists_agent(&self, name: &str) -> bool {
+        self.agents.iter().any(|a| a == name)
+    }
+
+    /// True when `name` is listed in `[secure] tools`.
+    pub fn lists_tool(&self, name: &str) -> bool {
+        self.tools.iter().any(|t| t == name)
+    }
+}
+
+/// 0.1.3: the certificate and key that `metagente serve` presents (`[serve] tls_cert` and `tls_key`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ServeTlsConfig {
+    pub cert: Option<PathBuf>,
+    pub key: Option<PathBuf>,
+    pub cert_line: usize,
+    pub key_line: usize,
+    /// The metagente.toml these settings came from ("" when there is none).
+    pub file: String,
+}
+
 /// 0.1.3: the `[network.proxy]` section.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ProxyConfig {
@@ -54,6 +94,9 @@ pub struct Config {
     pub parameters: Params,
     // 0.1.3: the [network] section
     pub network: NetworkConfig,
+    // 0.1.3: the [secure] section and the TLS keys of [serve]
+    pub secure: SecureConfig,
+    pub serve_tls: ServeTlsConfig,
 }
 
 impl Default for Config {
@@ -68,11 +111,13 @@ impl Default for Config {
             warnings: Vec::new(),
             parameters: Params::default(), // 0.1.2: none unless metagente.toml has [parameters]
             network: NetworkConfig::default(), // 0.1.3: certificate checks on, no proxy unless the environment has one
+            secure: SecureConfig::default(), // 0.1.3: nothing is declared secure unless metagente.toml says so
+            serve_tls: ServeTlsConfig::default(), // 0.1.3: plain http unless a certificate and key are given
         }
     }
 }
 
-const KNOWN_TOP: &[&str] = &["llm", "runtime", "serve", "parameters", "network"]; // 0.1.2: parameters, 0.1.3: network
+const KNOWN_TOP: &[&str] = &["llm", "runtime", "serve", "parameters", "network", "secure"]; // 0.1.2: parameters, 0.1.3: network and secure
 const KNOWN_NETWORK: &[&str] = &[
     "allow_self_signed",
     "llm_allow_self_signed",
@@ -89,7 +134,8 @@ const KNOWN_PROXY: &[&str] = &[
 ]; // 0.1.3
 const KNOWN_LLM: &[&str] = &["provider", "model", "api_key_env", "base_url"];
 const KNOWN_RUNTIME: &[&str] = &["timeout_seconds", "think_max_steps"];
-const KNOWN_SERVE: &[&str] = &["a2a_port", "bind"];
+const KNOWN_SERVE: &[&str] = &["a2a_port", "bind", "tls_cert", "tls_key"]; // 0.1.3: tls_cert and tls_key
+const KNOWN_SECURE: &[&str] = &["agents", "tools", "llm"]; // 0.1.3: the [secure] section
 
 impl Config {
     /// Loads the configuration found by walking up from `start`, then applies environment overrides.
@@ -230,7 +276,13 @@ impl Config {
         if let Some(net) = value.get("network") {
             self.network = read_network(net, &text, path)?;
         }
+        // 0.1.3: what must be reached over https
+        if let Some(sec) = value.get("secure") {
+            self.secure = read_secure(sec, &text, path)?;
+        }
         if let Some(sv) = value.get("serve").and_then(|v| v.as_table()) {
+            // 0.1.3: the certificate and key `serve` presents; paths are relative to the folder of metagente.toml
+            self.serve_tls = read_serve_tls(sv, &text, path)?;
             if let Some(n) = sv.get("a2a_port").and_then(|v| v.as_integer()) {
                 self.a2a_port = n.clamp(1, 65535) as u16;
             }
@@ -285,6 +337,7 @@ impl Config {
             let known = match key.as_str() {
                 "llm" => KNOWN_LLM,
                 "runtime" => KNOWN_RUNTIME,
+                "secure" => KNOWN_SECURE, // 0.1.3
                 _ => KNOWN_SERVE,
             };
             if let Some(table) = v.as_table() {
@@ -401,6 +454,105 @@ fn want_list(
             format!("`{}` in [{}] must be a list of texts", key, section),
             &format!("write it like {} = [\"a\", \"b\"]", key),
         )),
+    }
+}
+
+/// 0.1.3: the `[secure]` section.
+fn read_secure(value: &toml::Value, text: &str, path: &Path) -> Result<SecureConfig, Diagnostic> {
+    let Some(table) = value.as_table() else {
+        return Err(network_problem(
+            path,
+            line_of(text, "", "secure"),
+            "`secure` must be a section, written [secure]".to_string(),
+            "write [secure] on a line of its own, then agents = [\"Name\"] and tools = [\"name\"] under it",
+        ));
+    };
+    Ok(SecureConfig {
+        agents: want_list(table, "agents", "secure", text, path)?,
+        tools: want_list(table, "tools", "secure", text, path)?,
+        llm: want_bool(table, "llm", "secure", text, path)?,
+        agents_line: line_of(text, "secure", "agents"),
+        tools_line: line_of(text, "secure", "tools"),
+        llm_line: line_of(text, "secure", "llm"),
+        file: path.display().to_string(),
+    })
+}
+
+/// 0.1.3: `tls_cert` and `tls_key` of `[serve]`. One of them alone is reported by `serve`, not here.
+fn read_serve_tls(
+    table: &toml::Table,
+    text: &str,
+    path: &Path,
+) -> Result<ServeTlsConfig, Diagnostic> {
+    let folder = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let resolve = |p: String| {
+        let p = PathBuf::from(p);
+        if p.is_absolute() { p } else { folder.join(p) }
+    };
+    Ok(ServeTlsConfig {
+        cert: want_text(table, "tls_cert", "serve", text, path)?.map(resolve),
+        key: want_text(table, "tls_key", "serve", text, path)?.map(resolve),
+        cert_line: line_of(text, "serve", "tls_cert"),
+        key_line: line_of(text, "serve", "tls_key"),
+        file: path.display().to_string(),
+    })
+}
+
+/// 0.1.3: what `metagente check` needs from metagente.toml for the secure list and the serving certificate.
+pub struct SecureForCheck {
+    pub secure: SecureConfig,
+    pub serve_tls: ServeTlsConfig,
+    pub path: PathBuf,
+    /// Unknown keys in `[secure]` with their lines.
+    pub unknown_keys: Vec<(String, usize)>,
+    /// The folder of metagente.toml: where `.ag` files are looked for.
+    pub root: PathBuf,
+}
+
+impl Config {
+    /// 0.1.3: for `metagente check`. A metagente.toml that is not valid TOML at all is ignored by `check`, as in
+    /// 0.1.2; a problem in `[secure]` or in the `[serve]` TLS keys is an error. `None` when there is no file.
+    pub fn secure_for_check(start: &Path) -> Result<Option<SecureForCheck>, Diagnostic> {
+        let start = std::fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
+        let mut dir = Some(start.as_path());
+        while let Some(d) = dir {
+            let candidate = d.join("metagente.toml");
+            if candidate.is_file() {
+                let Ok(text) = std::fs::read_to_string(&candidate) else {
+                    return Ok(None);
+                };
+                let Ok(table) = text.parse::<toml::Table>() else {
+                    return Ok(None);
+                };
+                let secure = match table.get("secure") {
+                    Some(v) => read_secure(v, &text, &candidate)?,
+                    None => SecureConfig::default(),
+                };
+                let serve_tls = match table.get("serve").and_then(|v| v.as_table()) {
+                    Some(sv) => read_serve_tls(sv, &text, &candidate)?,
+                    None => ServeTlsConfig::default(),
+                };
+                let unknown_keys = table
+                    .get("secure")
+                    .and_then(|v| v.as_table())
+                    .map(|t| {
+                        t.keys()
+                            .filter(|k| !KNOWN_SECURE.contains(&k.as_str()))
+                            .map(|k| (k.clone(), line_of(&text, "secure", k)))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                return Ok(Some(SecureForCheck {
+                    secure,
+                    serve_tls,
+                    path: candidate,
+                    unknown_keys,
+                    root: d.to_path_buf(),
+                }));
+            }
+            dir = d.parent();
+        }
+        Ok(None)
     }
 }
 

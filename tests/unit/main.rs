@@ -4,3 +4,4 @@ mod example_size;
 mod lexer_multiline; // 0.1.2: multi-line strings
 mod net_proxy_rules; // 0.1.3: proxy choice, no_proxy and secrets
 mod parser_tests;
+mod secure_rules; // 0.1.3: the rule that refuses http for secure names

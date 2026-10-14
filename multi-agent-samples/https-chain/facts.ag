@@ -1,0 +1,9 @@
+# 0.1.3: the tool. It is a Metagente agent served over MCP, and metagente.toml says it must be served over https.
+agent Facts
+  goal "Know a few facts"
+  accepts lookup topic
+  on lookup
+    if topic is "rust"
+      reply "Rust is a systems language"
+    otherwise
+      reply "No fact about {topic}"

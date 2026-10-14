@@ -87,7 +87,7 @@ impl McpConnection {
                         &who,
                         "check the address and that the server is running",
                     );
-                    let text = short(&e.to_string());
+                    let text = plain_text(&short(&e.to_string())); // 0.1.3: no library type names
                     drop(e);
                     if let Some(outcome) = known {
                         return Err(self.net.finish(outcome).await);
@@ -125,16 +125,16 @@ impl McpConnection {
                         cmd.env(name, value);
                     }
                 }))
-                .map_err(|e| start_failed(e.to_string()))?;
+                .map_err(|e| start_failed(plain_text(&e.to_string())))?; // 0.1.3: no library type names
             ().serve(transport)
                 .await
-                .map_err(|e| start_failed(short(&e.to_string())))?
+                .map_err(|e| start_failed(plain_text(&short(&e.to_string()))))?
         };
         let tools = service.list_all_tools().await.map_err(|e| {
             ToolError::new(format!(
                 "the tool server `{}` did not tell me its tools: {}",
                 self.command,
-                short(&e.to_string())
+                plain_text(&short(&e.to_string()))
             ))
             .fix("check that it is an MCP server")
         })?;
@@ -195,9 +195,13 @@ impl McpConnection {
                             .fix("check the values you sent against what the tool expects"))
                     }
                     Err(e) => Err(ToolError::new(format!(
-                        "the tool server stopped answering while running `{}` ({})",
+                        "the tool server stopped answering while running `{}`{}",
                         action,
-                        short(&e.to_string())
+                        // 0.1.3: what a library says is shown only when it is plain words
+                        match plain_text(&short(&e.to_string())) {
+                            t if t == "the connection could not be completed" => String::new(),
+                            t => format!(" ({})", t),
+                        }
                     ))
                     .fix("make sure the server is running, then try again; I will reconnect on the next call")
                     .related(["connection-lost".to_string()])),
@@ -209,6 +213,15 @@ impl McpConnection {
             e.related.retain(|r| r != "connection-lost");
             e
         })
+    }
+}
+
+/// 0.1.3: text from a library that names Rust types is not shown to people.
+fn plain_text(text: &str) -> String {
+    if text.contains("::") || text.contains('<') {
+        "the connection could not be completed".to_string()
+    } else {
+        text.to_string()
     }
 }
 

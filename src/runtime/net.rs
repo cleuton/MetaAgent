@@ -3,7 +3,7 @@
 //! One `ClientSet` serves agents, tools and the language model. Settings come only from metagente.toml and the
 //! standard proxy environment variables, never from `.ag` code.
 
-use super::config::{NetworkConfig, ProxyConfig};
+use super::config::{NetworkConfig, ProxyConfig, SecureConfig}; // 0.1.3: SecureConfig rides with the network settings
 use crate::diagnostics::Diagnostic;
 use crate::tools::ToolError;
 use base64::Engine as _;
@@ -542,6 +542,8 @@ pub enum Purpose {
 
 struct Inner {
     cfg: NetworkConfig,
+    /// 0.1.3: what must be reached over https; reloaded together with `cfg`, for the next request
+    secure: Arc<SecureConfig>,
     env: EnvFn,
     /// How long opening a connection (including the proxy tunnel and the TLS handshake) may take.
     connect_timeout: Duration,
@@ -586,9 +588,15 @@ fn host_rule(cfg: &NetworkConfig) -> HostRule {
 }
 
 impl Inner {
-    fn new(cfg: NetworkConfig, env: EnvFn, connect_timeout: Duration) -> Arc<Inner> {
+    fn new(
+        cfg: NetworkConfig,
+        secure: Arc<SecureConfig>,
+        env: EnvFn,
+        connect_timeout: Duration,
+    ) -> Arc<Inner> {
         Arc::new(Inner {
             cfg,
+            secure,
             env,
             connect_timeout,
             proxy: OnceLock::new(),
@@ -636,6 +644,12 @@ impl Inner {
         Ok(certs)
     }
 
+    // 0.1.3: the client of `src/runtime/web.rs` (0.1.1) lives here now. Its comments, kept:
+    // The web client shared by the http tool, remote agents and language model providers.
+    // Builds the client without ever failing or panicking.
+    // It first trusts the certificates of the computer. On a bare machine that has none (a fresh
+    // container, for example) it falls back to the certificates bundled in the binary, so that agents
+    // still start and `https` still works with nothing installed.
     fn build(&self, purpose: Purpose, lax: bool, mcp: bool) -> Result<reqwest::Client, NetError> {
         let proxy = self.proxy()?;
         let roots = self.extra_roots()?;
@@ -710,12 +724,19 @@ impl ClientSet {
     /// never answers is reported as such before the whole call times out.
     pub fn for_config(config: &super::config::Config) -> ClientSet {
         let seconds = ((config.timeout_seconds * 2) / 3).max(1);
-        Self::with_connect_timeout(config.network.clone(), Duration::from_secs(seconds))
+        let set = Self::with_connect_timeout(config.network.clone(), Duration::from_secs(seconds));
+        set.reload_settings(config.network.clone(), config.secure.clone()); // 0.1.3: the secure list too
+        set
     }
 
     pub fn with_connect_timeout(cfg: NetworkConfig, connect_timeout: Duration) -> ClientSet {
         ClientSet {
-            inner: RwLock::new(Inner::new(cfg, real_env(), connect_timeout)),
+            inner: RwLock::new(Inner::new(
+                cfg,
+                Arc::new(SecureConfig::default()),
+                real_env(),
+                connect_timeout,
+            )),
         }
     }
 
@@ -726,7 +747,12 @@ impl ClientSet {
         env: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
     ) -> ClientSet {
         ClientSet {
-            inner: RwLock::new(Inner::new(cfg, Arc::new(env), connect_timeout)),
+            inner: RwLock::new(Inner::new(
+                cfg,
+                Arc::new(SecureConfig::default()),
+                Arc::new(env),
+                connect_timeout,
+            )),
         }
     }
 
@@ -740,11 +766,17 @@ impl ClientSet {
     /// Applies new settings to the next request. Requests already running keep the old ones.
     /// Returns true when something changed.
     pub fn reload(&self, cfg: NetworkConfig) -> bool {
+        let secure = self.snapshot().secure.as_ref().clone();
+        self.reload_settings(cfg, secure)
+    }
+
+    /// 0.1.3: the same, for the network settings and the secure list together (one mechanism for both).
+    pub fn reload_settings(&self, cfg: NetworkConfig, secure: SecureConfig) -> bool {
         let old = self.snapshot();
-        if old.cfg == cfg {
+        if old.cfg == cfg && *old.secure == secure {
             return false;
         }
-        let fresh = Inner::new(cfg, old.env.clone(), old.connect_timeout);
+        let fresh = Inner::new(cfg, Arc::new(secure), old.env.clone(), old.connect_timeout);
         match self.inner.write() {
             Ok(mut guard) => *guard = fresh,
             Err(poisoned) => *poisoned.into_inner() = fresh,
@@ -754,6 +786,11 @@ impl ClientSet {
 
     pub fn config(&self) -> NetworkConfig {
         self.snapshot().cfg.clone()
+    }
+
+    /// 0.1.3: the secure list in force for the next request.
+    pub fn secure(&self) -> Arc<SecureConfig> {
+        self.snapshot().secure.clone()
     }
 
     /// The client for an agent, MCP server or web address. Certificate checks are skipped only where
@@ -845,6 +882,34 @@ impl ClientSet {
         let client = self.mcp_for(url).ok()?;
         match tokio::time::timeout(Duration::from_secs(5), client.get(url).send()).await {
             Ok(Err(e)) => Some(self.explain(&e, url, who, fix, Purpose::Agents).await),
+            // 0.1.3: a redirect is never followed for a tool server; say where it wanted to send me
+            Ok(Ok(response)) if response.status().is_redirection() => {
+                let to = response
+                    .headers()
+                    .get(reqwest::header::LOCATION)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("another address")
+                    .to_string();
+                let reason = if url
+                    .trim_start()
+                    .to_ascii_lowercase()
+                    .starts_with("https://")
+                    && to.trim_start().to_ascii_lowercase().starts_with("http://")
+                {
+                    "an https address sent me to an http address"
+                } else {
+                    "a tool server must answer at the address written in the file"
+                };
+                Some(
+                    ToolError::new(format!(
+                        "{} sent me to {}, and I will not follow it: {}",
+                        redact(url),
+                        redact(&to),
+                        reason
+                    ))
+                    .fix("use the address where the server really answers, written with https://"),
+                )
+            }
             _ => None,
         }
     }
@@ -956,6 +1021,26 @@ fn classify(
             ));
         }
     }
+    // 0.1.3: an https address whose port does not speak TLS (it answers plain http, or hangs up during the handshake)
+    for e in &chain {
+        let text = e.to_string();
+        let not_tls = matches!(
+            e.downcast_ref::<rustls::Error>(),
+            Some(r) if !matches!(r, rustls::Error::InvalidCertificate(_))
+        ) || text.contains("tls handshake eof")
+            || text.contains("corrupt message");
+        if not_tls
+            && url
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("https://")
+        {
+            return Outcome::Done(
+                ToolError::new(format!("I could not complete a secure connection to {}", shown))
+                    .fix("check the port and that the server answers https (an address that starts with https:// needs a server with a certificate); I never retry over http"),
+            );
+        }
+    }
     // The proxy.
     let text = chain
         .iter()
@@ -1037,7 +1122,7 @@ fn error_chain(error: &reqwest::Error) -> Vec<&(dyn StdError + 'static)> {
     out
 }
 
-fn date_of(seconds: u64) -> String {
+pub(crate) fn date_of(seconds: u64) -> String {
     chrono::DateTime::from_timestamp(seconds as i64, 0)
         .map(|d| d.format("%Y-%m-%d").to_string())
         .unwrap_or_else(|| "an earlier date".to_string())
@@ -1118,7 +1203,12 @@ fn certificate_message(
                     "I could not trust the certificate of {} ({}): it was signed by an authority I do not know, for example a self-signed certificate",
                     shown, who
                 ))
-                .fix("add that authority with ca_file in [network]; for development only you can set allow_self_signed = true")
+                .fix(if cfg.ca_file.is_some() {
+                    // 0.1.3: ca_file is set, so the usual advice would not help; the common cause is a certificate that is itself marked as an authority
+                    "ca_file is set but did not make this certificate trusted: it must be the certificate of that server, or of the authority that signed it. A self-signed certificate made with openssl must say basicConstraints=critical,CA:FALSE (the README shows the command); for development only you can set allow_self_signed = true"
+                } else {
+                    "add that authority with ca_file in [network]; for development only you can set allow_self_signed = true"
+                })
             }
         }
     }

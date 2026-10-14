@@ -65,6 +65,8 @@ pub struct CallContext {
     pub chain: Vec<String>,
     pub task_id: String,
     pub deadline: Option<Instant>,
+    /// 0.1.3: true when a secure agent that loaded this one with `link` makes its network calls https only (D14).
+    pub secure: bool,
 }
 
 impl CallContext {
@@ -73,6 +75,7 @@ impl CallContext {
             chain: Vec::new(),
             task_id: task_id.into(),
             deadline: None,
+            secure: false, // 0.1.3
         }
     }
 

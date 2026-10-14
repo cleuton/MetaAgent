@@ -99,6 +99,11 @@ pub async fn run_file(opts: &RunOptions, rt: Arc<Runtime>) -> MgResult<Value> {
         &rt.config.root,
         &agents,
     ));
+    // 0.1.3: an http address for something declared secure, or a local tool listed as secure, stops the run before any connection
+    problems.extend(crate::runtime::secure::check_agents(
+        &agents,
+        &rt.net.secure(),
+    ));
     if !problems.is_empty() {
         let extra = problems.len() - 1;
         let mut first = problems.remove(0);

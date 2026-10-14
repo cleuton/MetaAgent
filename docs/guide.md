@@ -117,6 +117,14 @@ if city is nothing
 Give each agent one job and call it like a tool (see `link` in the tutorial). A linked agent's `reply`
 is the value the caller gets. That is the way to "make a function".
 
+An agent can also be used as a tool by other programs, or by agents on another computer, when you serve it with
+`metagente serve file.ag --mcp 9000`: see [An agent as a tool](tutorial.md#an-agent-as-a-tool).
+
+Agents can call each other, and tools, over https too, so that nobody between the computers can read the conversation.
+A certificate made on your own computer is enough for development: the
+[secure connections guide](secure-connections-guide.md) teaches it from zero, and the sample
+[multi-agent-samples/https-chain](../multi-agent-samples/https-chain/README.md) runs it.
+
 ## What the language does not have (yet)
 
 Being small on purpose (a beginner must be able to read it aloud), it has no arithmetic (`+`, `-`,

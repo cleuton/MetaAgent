@@ -46,7 +46,24 @@ fn json_response(status: StatusCode, body: Json) -> Response {
         .into_response()
 }
 
-fn base_of(state: &A2aState, headers: &HeaderMap) -> String {
+/// 0.1.3: the host (and port) the caller used. HTTP/1.1 sends a `Host` header; HTTP/2 (curl, browsers) sends the
+/// authority in the request address instead and no `Host` header at all.
+fn host_of(headers: &HeaderMap, uri: &axum::http::Uri) -> Option<String> {
+    headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .map(String::from)
+        .or_else(|| uri.authority().map(|a| a.to_string()))
+}
+
+fn base_of(state: &A2aState, headers: &HeaderMap, uri: &axum::http::Uri) -> String {
+    // 0.1.3: a listener that answers https always advertises https, whatever a header says
+    if state.base.starts_with("https://") {
+        return match host_of(headers, uri) {
+            Some(h) => format!("https://{}", h),
+            None => state.base.clone(),
+        };
+    }
     // 0.1.3: behind a reverse proxy that ends https, the card must advertise https, or clients would refuse to follow it
     let scheme = match headers
         .get("x-forwarded-proto")
@@ -56,15 +73,17 @@ fn base_of(state: &A2aState, headers: &HeaderMap) -> String {
         Some(s) if s == "https" => "https",
         _ => "http",
     };
-    headers
-        .get(header::HOST)
-        .and_then(|h| h.to_str().ok())
+    host_of(headers, uri)
         .map(|h| format!("{}://{}", scheme, h))
         .unwrap_or_else(|| state.base.clone())
 }
 
-async fn default_card(State(state): State<Arc<A2aState>>, headers: HeaderMap) -> Response {
-    let base = base_of(&state, &headers);
+async fn default_card(
+    State(state): State<Arc<A2aState>>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+) -> Response {
+    let base = base_of(&state, &headers, &uri);
     match state.served.default() {
         Some(def) => json_response(StatusCode::OK, agent_card(&def, &format!("{}/a2a", base))),
         None => json_response(
@@ -77,9 +96,10 @@ async fn default_card(State(state): State<Arc<A2aState>>, headers: HeaderMap) ->
 async fn named_card(
     State(state): State<Arc<A2aState>>,
     headers: HeaderMap,
+    uri: axum::http::Uri,
     Path(name): Path<String>,
 ) -> Response {
-    let base = base_of(&state, &headers);
+    let base = base_of(&state, &headers, &uri);
     match state.served.find(&name) {
         Some(def) => json_response(
             StatusCode::OK,

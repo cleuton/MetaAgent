@@ -39,6 +39,12 @@ enum Command {
         /// Which agent to show at the top level (the first by default)
         #[arg(long)]
         agent: Option<String>,
+        /// 0.1.3: PEM certificate to serve over https (wins over tls_cert in metagente.toml; needs --tls-key or tls_key)
+        #[arg(long = "tls-cert", value_name = "FILE")]
+        tls_cert: Option<PathBuf>,
+        /// 0.1.3: PEM private key to serve over https (wins over tls_key in metagente.toml)
+        #[arg(long = "tls-key", value_name = "FILE")]
+        tls_key: Option<PathBuf>,
     },
     /// Check a file for problems without running it
     Check { file: PathBuf },
@@ -134,6 +140,16 @@ async fn main() -> ExitCode {
                 }
                 let mut problems = metagente::lang::check::check_all(&agents);
                 problems.extend(network_problems);
+                // 0.1.3: the secure list: names that match nothing, local tools that cannot be secured, http addresses
+                let secure =
+                    metagente::runtime::secure::check_project(&agents, &project_dir_of(&file));
+                for w in &secure.warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                for n in &secure.notes {
+                    println!("Note: {}", n);
+                }
+                problems.extend(secure.problems);
                 if let Ok(rt) =
                     build_runtime(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
                 {
@@ -188,6 +204,8 @@ async fn main() -> ExitCode {
             mcp,
             public,
             agent,
+            tls_cert, // 0.1.3
+            tls_key,  // 0.1.3
         } => {
             use metagente::runtime::serve::{McpMode, ServeOptions, serve};
             let mode = match mcp.as_deref() {
@@ -222,6 +240,8 @@ async fn main() -> ExitCode {
                     mcp: mode,
                     public,
                     agent,
+                    tls_cert, // 0.1.3
+                    tls_key,  // 0.1.3
                 },
                 rt,
             )

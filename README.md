@@ -78,12 +78,185 @@ non-programmers a way to build agents, Metagente is for you.
 - **Built in tools and MCP tools:** plug in any MCP server.
 - **Safe agents:** each agent declares which folders, environment variables and other agents it may use.
 - **Dynamic link:** agents call agents by name or path, with interface checks and cycle detection.
-- **A2A and MCP server:** expose an agent as an MCP server or with an A2A Agent Card, and send or receive A2A tasks.
+- **A2A and MCP server:** expose an agent as an MCP server or with an A2A Agent Card, and send or receive A2A tasks. Any agent you serve with `--mcp` is a tool that other agents (or any MCP client) can use: see [An agent as a tool](docs/tutorial.md#an-agent-as-a-tool).
 - **CLI:** `new`, `check`, `run` and `serve`.
 - **Multi-line text** (new in 0.1.2): a prompt with many lines between `"""` and `"""`, kept exactly as typed.
 - **External parameters** (new in 0.1.2): addresses and prompts live in `metagente.toml` and agents read them as `@parameters.name`.
-- **Secure connections** (new in 0.1.3): `https://` addresses for agents, tools and the model, authenticated proxies, and self-signed certificates for development. See [Secure connections](#secure-connections).
-- **Python interoperability** (new in 0.1.3): a Python agent and a Metagente agent call each other over A2A. See [examples/python_interop](examples/python_interop/).
+- **Secure connections** (new in 0.1.3): `https://` addresses everywhere, `[secure]` to require https by name, `metagente serve` answering over https (`--tls-cert`, `--tls-key`), self-signed certificates only when `metagente.toml` says so, and authenticated proxies.
+- **Python interoperability** (new in 0.1.3): tested against the official A2A Python SDK, in both directions.
+
+### New in 0.1.3: secure connections (https on both ends)
+
+An address that starts with `https://` just works: agents, tools, web addresses and the language model are
+reached over TLS, and the certificate is checked against the certificates of your computer (the binary also
+carries a set of its own, so it works on a bare machine too). **No syntax changed.** The way a program asks for
+a secure connection is the address itself: write `https://` instead of `http://`, written in the file or taken from
+`@parameters.name`.
+
+Two things are new on top of that: you can **require** https for a name, and `metagente serve` can **answer** over
+https. A complete, runnable example is [multi-agent-samples/https-chain](multi-agent-samples/https-chain/README.md):
+an agent calls an agent, which calls a tool, all over https, with a certificate you make on your computer.
+New to certificates? Start with the [secure connections guide](docs/secure-connections-guide.md), which teaches them
+from zero.
+
+#### Require https for a name: `[secure]`
+
+Optional. Secure communication is optional too: without this section nothing changes. It lives only in
+`metagente.toml`, never in an `.ag` file, so an agent cannot weaken it.
+
+```toml
+[secure]
+agents = ["Bob", "Researcher"]   # agent names, exactly as in the .ag files (case sensitive)
+tools  = ["weather", "http"]     # tool names; "http" makes the built in http tool https only
+llm    = false                   # true: the language model address must be https
+```
+
+* A name in `agents` is a `remote Bob at "..."` you call, **and** an agent you serve.
+  Calling it over `http://` is refused with a plain message **before any connection is opened**, and serving it
+  needs a certificate (see below).
+* A name in `tools` is a tool you reach over an `http://` or `https://` address. A tool that runs as a local program
+  (`stdio`) has no address to secure, so listing it is an error that says so. The same goes for built in tools
+  other than `http`.
+* `llm = true` refuses a model address that starts with `http://`, before the key is sent. The default hosted
+  addresses are https and keep working.
+* **An agent in `agents` is secure in every direction**: everything it serves is https only, and every network call
+  its own handlers make (remote agents, tools reached over http, the `http` tool, the model) must be https, or it is
+  refused. An agent it loads with `link` follows the same rule, because a linked agent runs in the context of the
+  agent that loaded it. Local tools (`stdio`, `file`, `state`, `env`, `clock`) are not network traffic and keep working.
+* For a third party tool, Metagente refuses http and refuses to be sent from https to http. That is everything it can
+  guarantee: what the other server does with your data is outside its control. For agents and tools that Metagente
+  serves itself, it guarantees the server side too.
+* `metagente check` reports an `http://` address for anything listed, a listed name that matches nothing (a probable
+  typo, with the closest name), unknown keys and wrong types. A change to `[secure]` applies to the next request
+  while serving, with no restart.
+
+#### Serve over https
+
+```text
+metagente serve agent.ag --a2a 8443 --mcp 9443 --tls-cert certs/cert.pem --tls-key certs/key.pem
+```
+
+or, once, in `metagente.toml`:
+
+```toml
+[serve]
+tls_cert = "certs/dev-cert.pem"   # PEM certificate (relative paths start at the folder of metagente.toml)
+tls_key  = "certs/dev-key.pem"    # PEM private key
+```
+
+* With a certificate and key, every port of the process answers https only: there is no plain listener and no
+  redirect. Without them, `serve` answers plain http exactly as in 0.1.2. To have both, start two processes.
+* The flags win over `metagente.toml` (a relative path given as a flag starts at the current folder), and `serve`
+  says in one line when it used a flag instead of a setting. Giving only one of the two is an error that names the
+  missing one.
+* An agent in `[secure] agents` is **never** served over plain http: without a certificate and key `serve` refuses
+  to start. If the file holds several agents and one is secure, the whole process answers https only, and says so.
+  A secure agent cannot be served with `--mcp stdio`.
+* Every address in the Agent Card is `https://`, whatever header a request carries. (A plain, not secure agent behind
+  a reverse proxy that ends TLS and sends `X-Forwarded-Proto: https` still advertises https.)
+* The certificate and key are read when `serve` starts. Editing them in `metagente.toml` later needs a restart, and
+  `serve` prints one line saying so. An expired certificate is refused; one that expires within 30 days only warns.
+* Serving stays on your own computer unless you add `--public`. Https protects the channel, not who is calling:
+  there is still no login in this version.
+
+#### A certificate for development, and how to trust it
+
+```text
+mkdir certs
+openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" -addext "basicConstraints=critical,CA:FALSE" -keyout certs/dev-key.pem -out certs/dev-cert.pem
+```
+
+The certificate must name the host people use in the address (`localhost` and `127.0.0.1` here), and it must say
+`CA:FALSE`. The computer that calls it then has to trust it, in one of two ways, in `[network]`:
+
+1. **Preferred, `ca_file`**: `ca_file = "certs/dev-cert.pem"` trusts that certificate (or the authority that signed
+   it) and keeps checking everything else, including the name.
+2. **Development only, `allow_self_signed`**: skips the certificate checks. Every `run`, `serve` and `check` prints a
+   warning that says so, and the agent file cannot silence it. `self_signed_hosts = ["127.0.0.1"]` limits it to
+   those hosts.
+
+Trusting a certificate and requiring https are independent: `allow_self_signed` never makes `http://` acceptable for
+a name in `[secure]`, and `[secure]` never turns self-signed certificates on.
+
+#### `[network]` and `[network.proxy]`: every key
+
+```toml
+[network]
+allow_self_signed = false        # true: no certificate checks for agents, tools, the http tool and the proxy (development only)
+self_signed_hosts = ["127.0.0.1"] # optional: limit allow_self_signed to these hosts
+llm_allow_self_signed = false    # true: no certificate checks for the language model ONLY (a private gateway you trust)
+ca_file = "certs/dev-ca.pem"     # trust one more authority, for every connection, and keep checking
+
+[network.proxy]
+url = "http://proxy.company.com:3128"   # no user name or password inside the address
+username_env = "PROXY_USER"             # the NAME of the variable that holds the user name
+password_env = "PROXY_PASSWORD"         # the NAME of the variable that holds the password
+no_proxy = ["localhost", "127.0.0.1", ".internal.company.com"]
+pass_to_tools = false                   # true: give these settings to tool programs started over stdio
+```
+
+All keys are optional and every default is off. `allow_self_signed` does **not** apply to the language model, because
+your model key travels on that connection: `llm_allow_self_signed` is a separate switch, and it prints its own warning
+(the key is sent to a server whose identity was not verified). A missing `ca_file` is an error that names the file and
+the line.
+
+* **Proxy.** Connections go through the proxy (`CONNECT` for https, plain proxying for http), with Basic login when
+  `username_env` and `password_env` are set. The login is **only** the names of environment variables: a literal
+  `username`, a literal `password`, or `user:pass@` inside `url` is rejected, because `metagente.toml` is often
+  shared or committed. The login is sent only to the proxy, is never printed, and those variables cannot be read by
+  agents (`tool env`), exactly like the model key.
+* **Proxy from the environment.** With no `url`, the usual `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` variables are
+  used (`check` says so once). With a `url`, the toml wins and the environment proxy variables are ignored
+  completely, including `NO_PROXY`.
+* **`pass_to_tools = true`** gives `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` (and their lower case forms) to MCP servers
+  started over `stdio`, only to those child programs, login included. `check` warns that the login becomes visible to
+  those programs, so declare only tools you trust. A `stdio` tool makes no network connection through Metagente, so
+  the proxy and certificate settings do not apply to that pipe.
+
+#### What you see when something is wrong
+
+Every message names the thing, says what happened, and ends with the fix. None shows Rust or library text, a key or a
+password.
+
+| Message (shape) | Fix |
+|-----------------|-----|
+| `Bob is declared secure in metagente.toml but this address uses http: http://host:8443` | write `https://`, or remove `Bob` from `[secure] agents` |
+| `Researcher is declared secure, so it may only call https addresses. This address uses http: ...` | change the address so that it starts with `https://` |
+| `The model address in [llm] uses http, and [secure] llm is on. Nothing was sent.` | use an `https://` address in `[llm]` |
+| `Researcher is declared secure, so I will only serve it over https, but no certificate is set.` | set `tls_cert` and `tls_key` in `[serve]`, or use `--tls-cert` and `--tls-key` |
+| `I have a certificate but no key (tls_key).` (or the reverse) | add the missing setting |
+| `Facts is declared secure and stdio is not https.` | serve it with `--mcp PORT` and a certificate |
+| `files runs as a local program, so it has no address to secure.` | remove it from `[secure] tools`, or give the tool an `https://` address |
+| `the key in ... does not match the certificate in ...` | use the key that was made with that certificate |
+| `the certificate in ... expired on ...` | make a new certificate and key |
+| `Warning: The certificate in ... expires on ...` | renew it when you can |
+| `https://host/... sent me to http://host/..., and I will not follow it: an https address sent me to an http address` | serve the agent over https, or use the final address |
+| `the agent card of Bob points tasks to ..., which is less secure than ...; I will not follow it` | serve the agent over https, so its card points to an https address |
+| `the agent card of Bob points tasks to ..., a different host than ...; Bob is declared secure, so I will not follow it` | serve the agent so that its card points to its own address |
+| `I could not complete a secure connection to https://...` | check the port and that the server answers https; there is never a retry over http |
+| `I could not trust the certificate of ...: it was signed by an authority I do not know, for example a self-signed certificate` | `ca_file` (preferred) or, for development only, `allow_self_signed` |
+| `the certificate of ... has expired` / `... is not valid yet` | renew it / check the clock |
+| `the certificate of ... is for X, but the address says Y` | use the name that is on the certificate |
+| `the proxy ... refused the login` | check `username_env` and `password_env`, and that the variables are set |
+| `I could not reach the proxy ...; ... was never contacted` | check `url` in `[network.proxy]` |
+| `` `password` in [network.proxy] must not hold a real login `` | write the name of a variable in `password_env` |
+| `[secure] lists the agent Bobb, but no agent or remote called Bobb is declared here. Did you mean Bob?` | fix the name |
+
+#### Test it with Python
+
+`cargo test` also checks that a Python agent and a Metagente agent call each other, over plain http, over https with a
+self-signed certificate, and through an authenticated proxy, using the official `a2a-sdk`. Those tests need Python
+3.11 or newer; without it they say they were skipped (in CI a missing Python fails the build):
+
+```text
+python3 -m venv .venv
+. .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r tests/interop/requirements.txt
+export METAGENTE_INTEROP_PYTHON="$PWD/.venv/bin/python"   # Windows: set METAGENTE_INTEROP_PYTHON=.venv\Scripts\python.exe
+cargo test
+```
+
+To try the two sides by hand, see [examples/python_interop](examples/python_interop/README.md).
 
 ### New in 0.1.2
 
@@ -124,194 +297,6 @@ agent Screener
 An agent loaded with `link` reads the `metagente.toml` of the agent that loaded it. Details are in
 [docs/syntax.md](docs/syntax.md#parameters).
 
-## Secure connections
-
-*New in 0.1.3.* An address that starts with `https://` just works, for `remote`, for `tool ... from mcp`, for the
-`http` tool and for the language model. Nothing changes in your `.ag` files. Everything below is set in
-`metagente.toml` (never in the agent, so an agent cannot weaken it).
-
-```text
-agent Trip
-  goal "Ask a remote weather agent"
-  remote Bob at "https://agents.example.com/weather"
-  accepts plan city
-  on plan
-    forecast = Bob.ask city: city
-    reply "Bob says: {forecast}"
-```
-
-### What the default checking does
-
-Metagente checks the certificate of every server it talks to, using the certificates of your computer. On a computer
-that has none (a fresh container, for example) it uses the certificates that are built into the program, so `https`
-still works and nothing fails at startup. An expired certificate, a certificate for another name, or one signed by an
-authority Metagente does not know is refused with a sentence that names the address, says what is wrong and says how
-to fix it. An `https://` address is never allowed to send you to a plain `http://` one: that is refused too, including
-an Agent Card that points tasks to `http://`.
-
-### Every setting
-
-All keys are optional. A `metagente.toml` without `[network]` behaves as before (plus working `https` and the proxy
-variables of your environment).
-
-```toml
-[network]
-allow_self_signed = false            # true skips certificate checks for agents, tools and web addresses (development only)
-llm_allow_self_signed = false        # true skips certificate checks for the language model only (a private gateway you trust)
-# self_signed_hosts = ["localhost", "127.0.0.1", "dev.lab.local"]   # optional: limit allow_self_signed to these hosts
-# ca_file = "certs/dev-ca.pem"       # trust one more authority and keep checking (better than skipping checks)
-
-[network.proxy]
-# url = "http://proxy.company.com:3128"   # no user name or password inside the address
-# username_env = "PROXY_USER"             # the NAME of the variable that holds the user name
-# password_env = "PROXY_PASSWORD"         # the NAME of the variable that holds the password
-# no_proxy = ["localhost", "127.0.0.1", ".internal.company.com"]
-# pass_to_tools = false                   # true gives these settings to tool programs started over stdio
-```
-
-| Key | Default | What it does |
-|-----|---------|--------------|
-| `allow_self_signed` | `false` | Accept self-signed and otherwise untrusted certificates (even a wrong name) for agents, tool servers, web addresses and an `https://` proxy. **Not** for the language model. |
-| `llm_allow_self_signed` | `false` | The same, for the language model connection only. |
-| `self_signed_hosts` | none | With `allow_self_signed`, skip checks only for these hosts. Every other host is still checked. Does not affect the language model. |
-| `ca_file` | none | A PEM file with one or more authorities to trust, for every connection (the model too), with checks still on. A relative path starts at the folder of `metagente.toml`. |
-| `[network.proxy] url` | none | The proxy, `http://` or `https://`. Tunnels are opened with `CONNECT` for `https` addresses; `http` addresses are sent through it. |
-| `username_env`, `password_env` | none | The **names** of the environment variables that hold the proxy login (Basic). Both or neither. |
-| `no_proxy` | none | Hosts that skip the proxy: names, `.domain.suffixes`, IP addresses, `localhost`. |
-| `pass_to_tools` | `false` | Give the proxy settings to tool programs started over stdio. |
-
-### A proxy that needs a login
-
-Put the login in two environment variables and name them in `metagente.toml`:
-
-```bash
-export PROXY_USER=ann
-export PROXY_PASSWORD='p@ss:word'      # any characters work: it is never part of an address
-```
-
-```toml
-[network.proxy]
-url = "http://proxy.company.com:3128"
-username_env = "PROXY_USER"
-password_env = "PROXY_PASSWORD"
-```
-
-That is all: four lines. The login goes only to the proxy, never to the server you are calling, and it is never
-printed. **A real user name or password written in `metagente.toml`, or inside the proxy `url`, is refused** with the
-line number, because that file is often shared or committed. The same rule is why the model key is also only a
-variable name (`api_key_env`).
-
-### The proxy variables you already have
-
-If `metagente.toml` has no proxy `url`, Metagente uses `HTTPS_PROXY` for `https://` addresses, `HTTP_PROXY` for
-`http://` addresses and `NO_PROXY` (lower case names work too). A login written in the standard form
-(`http://user:pass@host:3128`) is used and never shown. A company that already sets these needs no change at all.
-When `metagente.toml` has a `url`, it wins completely: the proxy variables, `NO_PROXY` included, are ignored.
-If only `no_proxy` is in `metagente.toml`, it replaces `NO_PROXY` and the proxy still comes from the environment.
-`metagente check` says which one is in use.
-
-### Self-signed certificates while developing
-
-```toml
-[network]
-allow_self_signed = true
-```
-
-One line, and every `run`, `serve` and `check` prints, for as long as it is there:
-
-```text
-Warning: certificate checks are OFF for agents and tools (allow_self_signed = true in metagente.toml). Use this for development only.
-```
-
-The agent file cannot silence it. Prefer `ca_file` whenever you can: it trusts one authority and keeps checking
-everything else. `self_signed_hosts = ["dev.lab.local"]` limits the relaxed checking to the hosts you list, and a
-redirect to a host that is not on the list is refused.
-
-### A private model gateway: `llm_allow_self_signed`
-
-The language model receives your API key, so it has its own switch, separate on purpose. `allow_self_signed` never
-relaxes it, and `llm_allow_self_signed` never relaxes anything else. If you run your own gateway with a self-signed
-certificate and trust it:
-
-```toml
-[network]
-llm_allow_self_signed = true
-```
-
-The warning says plainly that the key will be sent to a server whose identity was not verified. The proxy settings
-apply to the model connection too.
-
-### Tool programs started over stdio: `pass_to_tools`
-
-A tool server started with a command, for example `tool files from mcp "npx -y some-server"`, is a program on your
-computer. Metagente talks to it through its input and output, so `[network]` does not apply to that conversation.
-If the program itself downloads things and must use your proxy, set `pass_to_tools = true`: the program then gets
-`HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` (and their lower case forms), including the login. Nothing else gets them
-and Metagente's own environment is not changed. `metagente check` warns that the login becomes visible to the tool
-programs, so declare only tools you trust. Agents themselves still cannot read the login variables with
-`tool env`, exactly like the model key.
-
-### Serving over https
-
-`metagente serve` speaks plain http and stays on your own computer unless you add `--public`. To offer an agent over
-`https`, put a reverse proxy that ends TLS in front of it. If that proxy sends `X-Forwarded-Proto: https`, the Agent
-Card advertises `https://` addresses, so Metagente clients accept it.
-
-### New messages and what to do
-
-| You see | Because | Do this |
-|---------|---------|---------|
-| `I could not trust the certificate of https://... : it was signed by an authority I do not know, for example a self-signed certificate` | The server's authority is not trusted here. | Add its authority with `ca_file`; for development only, `allow_self_signed = true`. |
-| `the certificate of ... is for X, but the address says Y` | The certificate belongs to another name. | Use the name on the certificate. |
-| `the certificate of ... expired on 2025-01-31` / `is not valid until ...` | The certificate is out of date, or this computer's clock is wrong. | Renew it, or fix the clock. |
-| `... sent me to ..., and I will not follow it: an https address sent me to an http address` | A redirect would leave the protected connection. | Serve over `https`. |
-| `the agent card of Bob points tasks to http://..., which is less secure than https://...` | The card downgrades to plain `http`. | Serve the agent over `https`. |
-| `I could not trust the certificate of the language model server ...` | The model gateway is not trusted. | `ca_file`, or `llm_allow_self_signed = true` for a gateway you trust. |
-| `the proxy http://... refused the login` | Wrong or missing proxy login. | Check `username_env`, `password_env` and the variables they name. |
-| `the proxy ... asks for NTLM login, and this version supports only Basic` | The proxy wants Kerberos, NTLM or Digest. | Use a proxy that accepts Basic. |
-| `the proxy ... refused to open a connection to host:443 (it answered 403)` | The proxy does not allow that destination. | Ask its administrator, or add the host to `no_proxy`. |
-| `I could not reach the proxy ...; https://... was never contacted` | The proxy address is wrong or the proxy is down. | Check `url` or `HTTPS_PROXY`. |
-| `the proxy ... did not answer in time` | The proxy accepted the connection and said nothing. | Check the proxy; raise `timeout_seconds`. |
-| `I could not trust a certificate while connecting to ... through the proxy ...` | The proxy itself (an `https://` proxy) or the server has an untrusted certificate. | `ca_file` for the proxy's authority, or `allow_self_signed` for development. |
-| `... must not hold a real login` (with the line) | A literal user name or password is in `metagente.toml`. | Write the name of a variable in `username_env` / `password_env`. |
-| `[network.proxy] has username_env but no password_env` | Half a login. | Set both. |
-| `the variable ... named by password_env is not set or is empty` | The variable is missing in this environment. | Set it before starting Metagente. |
-| `I could not read the certificate file ...` | `ca_file` points to a missing or unreadable file. | Check the path (it starts at the folder of `metagente.toml`). |
-
-### Python agents and Metagente agents, both ways
-
-Metagente speaks plain A2A, so it works with agents written with the official Python SDK. The folder
-[examples/python_interop/](examples/python_interop/) shows both directions in about 10 minutes: a Metagente agent
-calls a Python agent, and a Python program calls a Metagente agent.
-
-#### Setting up and running the Python interop tests
-
-You need Python 3.11 or newer. From the top folder of the project:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate                 # Linux and macOS
-# .venv\Scripts\activate                  # Windows (cmd or PowerShell)
-pip install -r tests/interop/requirements.txt
-export METAGENTE_INTEROP_PYTHON="$PWD/.venv/bin/python"          # Linux and macOS
-# set METAGENTE_INTEROP_PYTHON=%CD%\.venv\Scripts\python.exe     # Windows cmd
-cargo test python_interop
-```
-
-Without `METAGENTE_INTEROP_PYTHON` these tests print `SKIPPED` and the exact commands above, and pass. When the `CI`
-variable is set (as it is in continuous integration), a missing Python or package makes them fail instead. The
-tests start a Python agent, make a self-signed certificate on the spot (none is stored in the repository) and use a
-small authenticating proxy that is part of the test code. `a2a-sdk` is pinned to 1.2.0 (A2A 1.0) in
-`tests/interop/requirements.txt`, which lists every package the Python side needs.
-
-To run the pieces by hand:
-
-```bash
-python tests/interop/python_agent/agent.py --port 9100                       # the Python agent (add --tls-cert and --tls-key for https)
-python tests/interop/a2a_sdk_client.py http://127.0.0.1:8081 --message "greet name=Ana"   # the Python client
-python tests/interop/helpers/make_cert.py /tmp/certs 127.0.0.1 localhost     # a self-signed certificate
-```
-
 ## A complete example
 
 [City Briefing](samples/city-briefing/README.md) puts it all together: a Concierge agent asks a Researcher
@@ -323,9 +308,10 @@ agent over A2A, and the Researcher reads a web page through an MCP tool. Both us
 |-------|-------|
 | Tutorial, step by step | [docs/tutorial.md](docs/tutorial.md) |
 | Programming guide (if, loops, results) | [docs/guide.md](docs/guide.md) |
-| Language syntax, including multi-line text and parameters (new in 0.1.2); no syntax changed in 0.1.3 | [docs/syntax.md](docs/syntax.md) |
-| HTTPS, proxies, self-signed certificates and Python interop (new in 0.1.3) | [Secure connections](#secure-connections) |
+| Language syntax, including multi-line text and parameters (new in 0.1.2) | [docs/syntax.md](docs/syntax.md) |
 | Samples | [samples/](samples/) |
+| Secure connections end to end (new in 0.1.3) | [multi-agent-samples/https-chain](multi-agent-samples/https-chain/README.md) |
+| Secure connections guide for beginners: what a certificate is, make a self-signed one, run the whole chain over https (new in 0.1.3) | [docs/secure-connections-guide.md](docs/secure-connections-guide.md) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Roadmap
@@ -336,7 +322,7 @@ agent over A2A, and the Researcher reads a web page through an MCP tool. Both us
 | Safe agents (per-agent permissions) | Built |
 | Dynamic link between agents | Built |
 | Multi-line text and external parameters (v0.1.2) | Built |
-| HTTPS, authenticated proxies, self-signed development certificates, Python interop (v0.1.3) | Built |
+| Secure connections: https on both ends, `[secure]`, proxy, Python interoperability (v0.1.3) | Built |
 | v1.0: MCP server, A2A Agent Card, A2A tasks, `serve` | Built, release pending |
 | **Project Barracuda:** an agent server invoked via A2A or a frontend, with a queue for batch triggering | Next |
 | Long running tasks, authentication for served agents, agent registry, scheduling, A2A streaming | Ideas |
@@ -356,8 +342,8 @@ Every feature starts as a spec, so you can read why things are the way they are:
 | Validation guide | `specs/001-metagente-core/quickstart.md` |
 | v0.1.2 feature spec (multi-line text and parameters) | `specs/004-multiline-text-and-parameters/spec.md` |
 | v0.1.2 plan, tasks and contracts | `specs/004-multiline-text-and-parameters/` |
-| v0.1.3 feature spec (secure connections and Python interoperability) | `specs/005-secure-connections-interop/spec.md` |
-| v0.1.3 research (connection path matrix), plan, tasks and contracts | `specs/005-secure-connections-interop/` |
+| v0.1.3 feature spec (secure communication by declaration) | `specs/005-secure-by-declaration/spec.md` |
+| v0.1.3 plan, tasks, research and contracts | `specs/005-secure-by-declaration/` |
 
 ## Contributing
 

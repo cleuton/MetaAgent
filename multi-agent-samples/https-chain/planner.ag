@@ -1,0 +1,8 @@
+# 0.1.3: asks the Researcher over A2A. The address starts with https://, so the connection is encrypted.
+agent Planner
+  goal "Ask the Researcher about a topic over HTTPS"
+  remote Researcher at "https://127.0.0.1:8443"
+  accepts plan topic
+  on plan
+    answer = Researcher.research topic: topic
+    reply "Planner got: {answer}"
