@@ -17,7 +17,7 @@ jobs:
           - os: ubuntu-22.04
             name: linux-amd64
             exe: metagente
-          - os: macos-14          # Apple Silicon (arm64)
+          - os: macos-15          # Apple Silicon (arm64)
             name: macos-arm64
             exe: metagente
           - os: windows-latest
