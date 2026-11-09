@@ -49,6 +49,26 @@ bind = "127.0.0.1"        # only this computer; use --public to open up
 # pass_to_tools = false                # true gives these settings to tool programs started over stdio
 "#;
 
+/// 0.1.4: the oldest Metagente that may run this project: the one that created it. Active, not commented (D20).
+fn version_section() -> String {
+    format!(
+        "# 0.1.4: the oldest Metagente that may run this project. An older program refuses it instead of running it wrongly.\n[version]\nminimum = \"{}\"\n\n",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
+// 0.1.4: protect messages with a bearer token. Metagente never opens the token: a program of yours decides.
+const AUTH_EXAMPLE: &str = r#"
+# 0.1.4: messages that need a bearer token (Authorization: Bearer <token>). Metagente hands the token to your validator
+# program on standard input and obeys its exit code (0 = accepted). Keep [version] above when you use [auth].
+# [auth]
+# validator = "python validator.py"    # a program of yours, started with no shell and a clean environment
+# protect = ["Helper.greet"]           # Agent.message, or "Agent.*" for every message of an agent
+# forward = ["Researcher"]             # remote agents and http(s) tools that receive the caller's token
+# cache_seconds = 0                    # remember an accepted token for up to 300 seconds (0 = ask every time)
+# timeout_seconds = 5                  # how long the validator may take (1 to 60)
+"#;
+
 fn agent_name(name: &str) -> String {
     let cleaned: String = name
         .chars()
@@ -82,7 +102,11 @@ pub fn create(dir: &Path, name: &str) -> MgResult<Vec<String>> {
     let mut messages = vec![format!("Created {}", file_name)];
     let config = dir.join("metagente.toml");
     if !config.exists() {
-        std::fs::write(&config, CONFIG).map_err(|e| {
+        std::fs::write(
+            &config,
+            format!("{}{}{}", version_section(), CONFIG, AUTH_EXAMPLE),
+        )
+        .map_err(|e| {
             Diagnostic::new(format!("I could not create metagente.toml: {}", e))
                 .fix("check that you may write in this folder")
         })?;

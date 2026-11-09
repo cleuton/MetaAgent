@@ -13,6 +13,30 @@ pub struct Served {
     last_good: Mutex<Vec<Arc<AgentDef>>>,
     // 0.1.3: how the listeners were started, so a later change that needs a restart can be mentioned once
     listener: Mutex<Option<ListenerWatch>>,
+    // 0.1.4: [version] and [auth] as they were at start; a later edit is not applied and is mentioned once (D16)
+    auth_watch: Mutex<AuthWatch>,
+}
+
+struct AuthWatch {
+    start: String,
+    told: Option<String>,
+}
+
+/// 0.1.4: the raw text of the `[version]` and `[auth]` sections of the project's metagente.toml.
+fn auth_signature(root: &std::path::Path) -> String {
+    let mut dir = Some(root);
+    while let Some(d) = dir {
+        let candidate = d.join("metagente.toml");
+        if candidate.is_file() {
+            return std::fs::read_to_string(&candidate)
+                .ok()
+                .and_then(|t| t.parse::<toml::Table>().ok())
+                .map(|t| format!("{:?}|{:?}", t.get("version"), t.get("auth")))
+                .unwrap_or_default();
+        }
+        dir = d.parent();
+    }
+    String::new()
 }
 
 /// 0.1.3: what decides how a process answers: https or plain, and with which certificate and key.
@@ -38,12 +62,17 @@ impl Served {
         agents: Vec<Arc<AgentDef>>,
     ) -> Served {
         rt.linker.register(&agents);
+        let auth_start = auth_signature(&rt.config.root); // 0.1.4
         Served {
             rt,
             file,
             default_agent,
             last_good: Mutex::new(agents),
             listener: Mutex::new(None),
+            auth_watch: Mutex::new(AuthWatch {
+                start: auth_start,
+                told: None,
+            }),
         }
     }
 
@@ -89,8 +118,26 @@ impl Served {
         }
     }
 
+    /// 0.1.4: `[version]` and `[auth]` are read at start only (D16). A later edit, even deleting the section, changes
+    /// nothing; one plain line says a restart is needed, once per new state.
+    fn mention_auth_change(&self) {
+        let now = auth_signature(&self.rt.config.root);
+        let Ok(mut watch) = self.auth_watch.lock() else {
+            return;
+        };
+        if now == watch.start {
+            watch.told = None;
+        } else if watch.told.as_ref() != Some(&now) {
+            eprintln!(
+                "Note: metagente.toml changed [auth] (or [version]). I keep serving as I started; restart `metagente serve` for the change to apply."
+            );
+            watch.told = Some(now);
+        }
+    }
+
     /// The current agents. If the file was edited into something broken, the last good version stays.
     pub fn agents(&self) -> Vec<Arc<AgentDef>> {
+        self.mention_auth_change(); // 0.1.4
         // 0.1.2: a parameter edited in metagente.toml applies to the next request
         // 0.1.3: and so does a changed [network] or [secure] section; requests already running keep the settings they started with
         if let Ok(fresh) = super::config::Config::load_with_env(&self.rt.config.root, &|_| None) {
@@ -214,6 +261,16 @@ pub async fn serve(opts: ServeOptions, rt: Arc<Runtime>) -> MgResult<()> {
         ))
         .fix("serve it with --mcp PORT and a certificate (tls_cert and tls_key in [serve], or --tls-cert and --tls-key)"));
     }
+    // 0.1.4: a protected message is never served where a token has no place (D11): a pipe has no header
+    if let (Some(policy), Some(McpMode::Stdio)) = (&rt.config.auth, &opts.mcp) {
+        if let Some(what) = policy.first_protected(&agents) {
+            return Err(Diagnostic::new(format!(
+                "{} is protected, and stdio has no place for a token.",
+                what
+            ))
+            .fix("serve it with --mcp PORT"));
+        }
+    }
     let (pair, tls_notes) = super::tls::resolve(
         opts.tls_cert.as_deref(),
         opts.tls_key.as_deref(),
@@ -285,6 +342,32 @@ pub async fn serve(opts: ServeOptions, rt: Arc<Runtime>) -> MgResult<()> {
         (None, None) => Some(rt.config.a2a_port),
         (None, Some(_)) => None,
     };
+    // 0.1.4: a protected message is never served in the open on a network (D11)
+    if let Some(policy) = &rt.config.auth {
+        if let Some(what) = policy.first_protected(&agents) {
+            if tls_config.is_none() {
+                if !is_local(&host) {
+                    let port = a2a_port
+                        .or(match &opts.mcp {
+                            Some(McpMode::Port(p)) => Some(*p),
+                            _ => None,
+                        })
+                        .unwrap_or(rt.config.a2a_port);
+                    return Err(Diagnostic::new(format!(
+                        "{} is protected, and this address is plain http and open to other computers: {}:{}. A token would travel in the open.",
+                        what, host, port
+                    ))
+                    .fix(format!(
+                        "serve with tls_cert and tls_key, or remove {} from [auth] protect",
+                        what
+                    )));
+                }
+                eprintln!(
+                    "Warning: protected messages are served over plain http on this computer only. The token is not encrypted. For real use, serve with a certificate."
+                );
+            }
+        }
+    }
     let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
     eprintln!(
         "Serving {} ({}).",
@@ -355,7 +438,19 @@ pub async fn serve(opts: ServeOptions, rt: Arc<Runtime>) -> MgResult<()> {
                     Arc::new(LocalSessionManager::default()),
                     StreamableHttpServerConfig::default(),
                 );
-            let app = axum::Router::new().nest_service("/mcp", service);
+            let mut app = axum::Router::new().nest_service("/mcp", service);
+            // 0.1.4: the door that judges tokens in front of /mcp, only when something is protected (D24)
+            if rt
+                .config
+                .auth
+                .as_ref()
+                .is_some_and(|p| !p.protect.is_empty())
+            {
+                app = app.layer(axum::middleware::from_fn_with_state(
+                    served.clone(),
+                    crate::mcp::gate::gate,
+                ));
+            }
             eprintln!(
                 "MCP: {}://{}:{}/mcp",
                 scheme, // 0.1.3

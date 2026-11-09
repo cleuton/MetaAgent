@@ -4,6 +4,40 @@ All notable changes to Metagente are recorded here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## v0.1.4 - 2026-11-08
+
+Minimum version and authentication of served messages. Everything that worked in 0.1.3 works the same way. No syntax
+changed: the `.ag` language is the same.
+
+### Added
+- **`[version] minimum`** in `metagente.toml`: three whole numbers, a floor. A Metagente older than that stops `run`,
+  `check` and `serve` with a plain message, before anything else in the file is read. `[auth]` without `[version]`
+  prints a warning, because Metagente 0.1.3 and older ignore `[auth]` and would serve every message unprotected.
+  `metagente new` writes `[version]` and a commented `[auth]` example.
+- **`[auth]`**: `validator`, `protect`, `forward`, `cache_seconds` (0 to 300) and `timeout_seconds` (1 to 60). A message in
+  `protect` needs `Authorization: Bearer <token>` over A2A and over MCP on http. Metagente hands the token to your
+  validator program on standard input, in a clean environment (only `PATH`), and obeys the exit code (0 = accepted). It
+  never opens a token. HTTP 401 for no, malformed or refused tokens; HTTP 503 when the validator is broken. Nothing of the
+  agent runs before an accepted token. The Agent Card declares the Bearer requirement (A2A 1.0).
+- **Passing the token on**: the names in `forward` (remote agents and http(s) MCP tools) receive the caller's token;
+  nothing else does. Tokens never mix between requests, never follow a redirect, and never go to stdio tools, the `http`
+  tool or the model.
+- **Side doors closed**: `link` cannot reach a protected message from a request without an accepted token; `GetTask` reads
+  a protected task only with the token that started it.
+- **Fail closed**: a typo in `[auth]`, a name that matches nothing, a protected message on plain http on another address,
+  or over `--mcp stdio`, stop `serve`. `[version]` and `[auth]` are read at start; a later edit prints a line asking for a restart.
+- Sample [multi-agent-samples/auth-chain](multi-agent-samples/auth-chain/README.md), and the
+  [authentication guide](docs/authentication-guide.md).
+
+### Known limitations
+- **Not tested on Microsoft Windows.** The validator runs in a clean environment (only `PATH` and `SystemRoot`).
+  Whether `python`, `node` and other programs start with only those has not been tested on Windows. Linux and macOS are
+  the tested systems for this feature until a Windows run is recorded.
+- A revoked token stays good until its entry in the cache ends (`cache_seconds`).
+
+### Changed
+- The version is 0.1.4. The test that pinned the version number of 0.1.3 now pins 0.1.4.
+
 ## v0.1.3 - 2026-10-13
 
 Secure communication by declaration (HTTPS on both ends). Everything that worked in 0.1.2 works the same way.

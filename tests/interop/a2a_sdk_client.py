@@ -33,7 +33,9 @@ async def last_task(client, request):
 async def main(args):
     verify = False if args.insecure else (args.ca if args.ca else True)
     out = {}
-    async with httpx.AsyncClient(verify=verify, proxy=args.proxy) as http:
+    # 0.1.4: --bearer sends Authorization: Bearer <token> on everything, as a client of a protected agent would
+    headers = {"Authorization": "Bearer " + args.bearer} if args.bearer else None
+    async with httpx.AsyncClient(verify=verify, proxy=args.proxy, headers=headers) as http:
         card = await A2ACardResolver(http, args.base).get_agent_card()
         out["card_name"] = card.name
         out["skills"] = [s.id for s in card.skills]
@@ -64,4 +66,5 @@ if __name__ == "__main__":
     parser.add_argument("--insecure", action="store_true")
     parser.add_argument("--ca")
     parser.add_argument("--proxy")
+    parser.add_argument("--bearer")  # 0.1.4: a bearer token for a protected Metagente agent
     asyncio.run(main(parser.parse_args()))

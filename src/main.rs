@@ -25,7 +25,8 @@ enum Command {
         #[arg(long)]
         agent: Option<String>,
     },
-    /// Keep agents running so other programs can reach them over A2A and MCP
+    // 0.1.4: the help of serve, new and --public now mentions [auth] and [version]
+    /// Keep agents running so other programs can reach them over A2A and MCP (messages in [auth] need a bearer token)
     Serve {
         file: PathBuf,
         #[arg(long)]
@@ -33,7 +34,7 @@ enum Command {
         /// "stdio" or a port number
         #[arg(long)]
         mcp: Option<String>,
-        /// Accept connections from other machines (there is no authentication)
+        /// Accept connections from other machines (protect messages with [auth] in metagente.toml)
         #[arg(long)]
         public: bool,
         /// Which agent to show at the top level (the first by default)
@@ -48,13 +49,20 @@ enum Command {
     },
     /// Check a file for problems without running it
     Check { file: PathBuf },
-    /// Create a starter agent and a metagente.toml
+    /// Create a starter agent and a metagente.toml (with [version] and an [auth] example)
     New { name: String },
 }
 
 /// 0.1.3: certificate checks that are off are announced on every run, serve and check, and the agent cannot silence them.
 fn print_network_warnings(net: &metagente::runtime::config::NetworkConfig) {
     for w in metagente::runtime::net::startup_warnings(net) {
+        eprintln!("Warning: {}", w);
+    }
+}
+
+/// 0.1.4: warnings about [version] and [auth] are shown on every run, serve and check.
+fn print_auth_warnings(warnings: &[String]) {
+    for w in warnings {
         eprintln!("Warning: {}", w);
     }
 }
@@ -90,6 +98,7 @@ async fn main() -> ExitCode {
                 eprintln!("Note: {}", w);
             }
             print_network_warnings(&rt.config.network); // 0.1.3
+            print_auth_warnings(&rt.config.auth_warnings); // 0.1.4
             let opts = RunOptions {
                 file,
                 message,
@@ -109,80 +118,113 @@ async fn main() -> ExitCode {
                 }
             }
         }
-        Command::Check { file } => match metagente::runtime::run::load_agents_with(
-            &file,
-            // 0.1.2: the parameters of the project; a broken metagente.toml was ignored by `check` before, and still is
-            &metagente::runtime::config::Config::load_parameters(&project_dir_of(&file))
-                .unwrap_or_default(),
-        ) {
-            Err(d) => {
-                eprint!("{}", d.render());
-                ExitCode::from(1)
-            }
-            Ok(agents) => {
-                // 0.1.3: [network] problems are errors; certificate checks that are off are warnings
-                let mut network_problems = Vec::new();
-                match metagente::runtime::config::Config::network_for_check(&project_dir_of(&file))
-                {
-                    Err(d) => network_problems.push(d),
-                    Ok(net) => {
-                        print_network_warnings(&net);
-                        if let Some(w) = metagente::runtime::net::pass_to_tools_warning(&net) {
-                            eprintln!("Warning: {}", w);
-                        }
-                        let (notes, problems) =
-                            metagente::runtime::net::check_lines(&net, &|n| std::env::var(n).ok());
-                        for n in &notes {
-                            println!("Note: {}", n);
-                        }
-                        network_problems.extend(problems);
+        Command::Check { file } => {
+            // 0.1.4: [version] and [auth] are read first, and their mistakes stop `check` like they stop run and serve
+            let auth_check =
+                match metagente::runtime::config::Config::auth_for_check(&project_dir_of(&file)) {
+                    Ok(c) => c,
+                    Err(d) => {
+                        eprint!("{}", d.render());
+                        return ExitCode::from(1);
                     }
-                }
-                let mut problems = metagente::lang::check::check_all(&agents);
-                problems.extend(network_problems);
-                // 0.1.3: the secure list: names that match nothing, local tools that cannot be secured, http addresses
-                let secure =
-                    metagente::runtime::secure::check_project(&agents, &project_dir_of(&file));
-                for w in &secure.warnings {
-                    eprintln!("Warning: {}", w);
-                }
-                for n in &secure.notes {
-                    println!("Note: {}", n);
-                }
-                problems.extend(secure.problems);
-                if let Ok(rt) =
-                    build_runtime(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-                {
-                    rt.linker.register(&agents);
-                    problems.extend(metagente::link::check::check_links(
-                        &rt.linker,
-                        &rt.config.root,
-                        &agents,
-                    ));
-                    problems.sort_by_key(|d| (d.line, d.column));
-                }
-                if problems.is_empty() {
-                    let n = agents.len();
-                    println!(
-                        "No problems found in {} ({} agent{}).",
-                        file.display(),
-                        n,
-                        if n == 1 { "" } else { "s" }
-                    );
-                    ExitCode::SUCCESS
-                } else {
-                    for p in &problems {
-                        eprintln!("{}", p.render());
-                    }
-                    eprintln!(
-                        "Found {} problem{}.",
-                        problems.len(),
-                        if problems.len() == 1 { "" } else { "s" }
-                    );
+                };
+            match metagente::runtime::run::load_agents_with(
+                &file,
+                // 0.1.2: the parameters of the project; a broken metagente.toml was ignored by `check` before, and still is
+                &metagente::runtime::config::Config::load_parameters(&project_dir_of(&file))
+                    .unwrap_or_default(),
+            ) {
+                Err(d) => {
+                    eprint!("{}", d.render());
                     ExitCode::from(1)
                 }
+                Ok(agents) => {
+                    // 0.1.3: [network] problems are errors; certificate checks that are off are warnings
+                    let mut network_problems = Vec::new();
+                    match metagente::runtime::config::Config::network_for_check(&project_dir_of(
+                        &file,
+                    )) {
+                        Err(d) => network_problems.push(d),
+                        Ok(net) => {
+                            print_network_warnings(&net);
+                            if let Some(w) = metagente::runtime::net::pass_to_tools_warning(&net) {
+                                eprintln!("Warning: {}", w);
+                            }
+                            let (notes, problems) =
+                                metagente::runtime::net::check_lines(&net, &|n| {
+                                    std::env::var(n).ok()
+                                });
+                            for n in &notes {
+                                println!("Note: {}", n);
+                            }
+                            network_problems.extend(problems);
+                        }
+                    }
+                    let mut problems = metagente::lang::check::check_all(&agents);
+                    problems.extend(network_problems);
+                    // 0.1.4: [auth] against the agents of the project, and the warnings and notes of [version] and [auth]
+                    print_auth_warnings(&auth_check.warnings);
+                    if let Some(policy) = &auth_check.policy {
+                        let report =
+                            metagente::runtime::auth_check::validate(policy, &auth_check.params);
+                        print_auth_warnings(&report.warnings);
+                        for n in &report.notes {
+                            println!("Note: {}", n);
+                        }
+                        if metagente::runtime::auth_check::validator_program_exists(policy)
+                            == Some(false)
+                        {
+                            eprintln!(
+                                "Warning: the validator program in [auth] was not found: {}",
+                                policy.validator.clone().unwrap_or_default()
+                            );
+                        }
+                        problems.extend(report.errors);
+                    }
+                    // 0.1.3: the secure list: names that match nothing, local tools that cannot be secured, http addresses
+                    let secure =
+                        metagente::runtime::secure::check_project(&agents, &project_dir_of(&file));
+                    for w in &secure.warnings {
+                        eprintln!("Warning: {}", w);
+                    }
+                    for n in &secure.notes {
+                        println!("Note: {}", n);
+                    }
+                    problems.extend(secure.problems);
+                    if let Ok(rt) = build_runtime(
+                        &std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+                    ) {
+                        rt.linker.register(&agents);
+                        problems.extend(metagente::link::check::check_links(
+                            &rt.linker,
+                            &rt.config.root,
+                            &agents,
+                        ));
+                        problems.sort_by_key(|d| (d.line, d.column));
+                    }
+                    if problems.is_empty() {
+                        let n = agents.len();
+                        println!(
+                            "No problems found in {} ({} agent{}).",
+                            file.display(),
+                            n,
+                            if n == 1 { "" } else { "s" }
+                        );
+                        ExitCode::SUCCESS
+                    } else {
+                        for p in &problems {
+                            eprintln!("{}", p.render());
+                        }
+                        eprintln!(
+                            "Found {} problem{}.",
+                            problems.len(),
+                            if problems.len() == 1 { "" } else { "s" }
+                        );
+                        ExitCode::from(1)
+                    }
+                }
             }
-        },
+        }
         Command::New { name } => {
             let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             match metagente::runtime::scaffold::create(&dir, &name) {
@@ -233,6 +275,7 @@ async fn main() -> ExitCode {
                 eprintln!("Note: {}", w);
             }
             print_network_warnings(&rt.config.network); // 0.1.3
+            print_auth_warnings(&rt.config.auth_warnings); // 0.1.4
             match serve(
                 ServeOptions {
                     file,

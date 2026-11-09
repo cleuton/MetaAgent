@@ -53,6 +53,55 @@ impl Tool for McpTool {
 
     async fn call(&self, action: &str, args: Args, ctx: &CallContext) -> Result<Value, ToolError> {
         self.guard(ctx.secure)?; // 0.1.3
-        self.connection.call(&self.name, action, args).await
+        // 0.1.4: a listed tool gets the token of this request, on a session of its own (D12); anything else is as before
+        let listed = self
+            .rt
+            .config
+            .auth
+            .as_ref()
+            .is_some_and(|p| p.forwards_to(&self.name));
+        if listed && crate::runtime::auth_check::is_open_plain_http(&self.command) {
+            return Err(ToolError::new(format!(
+                "{} is in [auth] forward, but its address is plain http and not on this computer: the token would travel in the open.",
+                self.name
+            ))
+            .fix("use an https:// address"));
+        }
+        let token = crate::runtime::auth::forward_token(ctx.auth.as_ref(), &self.name).cloned();
+        let connection = match &token {
+            Some(t) => self.rt.mcp.get_for_token(&self.command, &self.rt.net, t),
+            None => self.connection.clone(),
+        };
+        let outcome = connection.call(&self.name, action, args).await;
+        match outcome {
+            Err(e) if e.related.iter().any(|r| r == "auth-401") => {
+                if let Some(t) = &token {
+                    self.rt.mcp.forget_token(&self.command, t);
+                }
+                // FR-034: the tool server asked for a token
+                Err(if token.is_some() {
+                    ToolError::new(format!(
+                        "{} refused the call: it did not accept the token this agent received.",
+                        self.name
+                    ))
+                    .fix(
+                        "check that it uses the same validator, and that the token has not expired",
+                    )
+                } else if listed {
+                    ToolError::new(format!(
+                        "{} refused the call: it needs a token, and this request had none to pass on.",
+                        self.name
+                    ))
+                    .fix("call this agent with a token")
+                } else {
+                    ToolError::new(format!(
+                        "{} refused the call: it needs a token. If it needs the one this agent received, add {} to forward in [auth].",
+                        self.name, self.name
+                    ))
+                    .fix(format!("add {} to forward in [auth] of metagente.toml", self.name))
+                })
+            }
+            other => other,
+        }
     }
 }

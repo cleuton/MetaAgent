@@ -72,6 +72,9 @@ Python project. Metagente makes a different trade:
 If you need fine control in Python, use a framework. If you want a working agent quickly, or you want to give
 non-programmers a way to build agents, Metagente is for you.
 
+> **Note (0.1.4): not tested on Microsoft Windows.** The validator that `[auth]` runs is started with a clean environment
+> (only `PATH` and `SystemRoot`). That has not been tested on Windows yet. Linux and macOS are the tested systems for it.
+
 ## What works today
 
 - **Language and interpreter:** goals, tools, inputs, replies, `if`, loops and results.
@@ -84,6 +87,79 @@ non-programmers a way to build agents, Metagente is for you.
 - **External parameters** (new in 0.1.2): addresses and prompts live in `metagente.toml` and agents read them as `@parameters.name`.
 - **Secure connections** (new in 0.1.3): `https://` addresses everywhere, `[secure]` to require https by name, `metagente serve` answering over https (`--tls-cert`, `--tls-key`), self-signed certificates only when `metagente.toml` says so, and authenticated proxies.
 - **Python interoperability** (new in 0.1.3): tested against the official A2A Python SDK, in both directions.
+- **Minimum version and bearer tokens** (new in 0.1.4): `[version]` makes an older Metagente refuse a project; `[auth]` protects messages with a token that a program of yours validates, and passes the token on to the agents and tools you list.
+
+### New in 0.1.4: a minimum version, and tokens for served messages
+
+**No syntax changed.** Both sections live only in `metagente.toml`, never in an `.ag` file. A complete, runnable
+example is [multi-agent-samples/auth-chain](multi-agent-samples/auth-chain/README.md) (three agents, one token, no model
+key). Read the [authentication guide](docs/authentication-guide.md) before real users.
+
+#### `[version]`: say which Metagente a project needs
+
+```toml
+[version]
+minimum = "0.1.4"      # three whole numbers, no leading zeros; the project runs on that version and any newer one
+```
+
+* An older program stops `run`, `check` and `serve` with *"This project needs Metagente 0.1.4 or newer, and this is
+  0.1.3. Nothing was run."* before it looks at anything else in the file. No section, no check.
+* **Always set it when you use `[auth]`.** Programs older than 0.1.4 do not know `[auth]`: they ignore it and serve every
+  message **without protection**. `[version]` makes them refuse the project. Metagente 0.1.4 warns when `[auth]` is set
+  without `[version]`, and `metagente new` writes `[version]` for you.
+
+#### `[auth]`: protect messages with a bearer token
+
+```toml
+[auth]
+validator = "python3 validator.py"           # your program: the token on standard input, exit code 0 = accepted
+protect = ["Planner.plan", "Worker.*"]       # Agent.message, or Agent.* for every message of an agent
+forward = ["Researcher", "kb"]               # remote agents and http(s) tools that receive the caller's token
+cache_seconds = 30                           # 0 to 300, default 0: remember an ACCEPTED token this long
+timeout_seconds = 5                          # 1 to 60, default 5: the validator's time limit
+```
+
+| Key | Default | Limits | Meaning |
+|-----|---------|--------|---------|
+| `validator` | none | text | The command. Started with no shell, in a clean environment (only `PATH`). Required when `protect` is not empty. |
+| `protect` | `[]` | list of `Agent.message` or `Agent.*` | Messages that need an accepted token over A2A and MCP on http. |
+| `forward` | `[]` | names of `remote` agents and http(s) MCP tools | Receive `Authorization: Bearer <the caller's token>`. Nothing else does. |
+| `cache_seconds` | `0` | 0 to 300 | A token the validator accepted is remembered this long. A refusal never is. |
+| `timeout_seconds` | `5` | 1 to 60 | Waiting, starting and running the validator, together. |
+
+* Metagente never opens a token, checks a signature or knows who a person is. Your validator decides.
+* Without a token, with a malformed one, or with one the validator refuses: HTTP 401 with `WWW-Authenticate: Bearer`.
+  If the validator is missing, too slow or broken: HTTP 503. Nothing of the agent runs. Every typo in `[auth]` stops
+  `run`, `serve` and `check`.
+* The Agent Card, MCP `initialize` and `tools/list`, and every message not in `protect` stay public.
+* A protected message is never served in the open: plain http on another address (`--public`) and `--mcp stdio` are
+  refused; plain http on this computer starts with a warning.
+* `link` cannot reach a protected message from a request that carried no accepted token, and `GetTask` returns a
+  protected task only to the token that started it.
+* Try it: [multi-agent-samples/auth-chain](multi-agent-samples/auth-chain/README.md).
+
+**Not tested on Microsoft Windows.** The validator runs in a clean environment (only `PATH` and `SystemRoot`) and that
+has not been tested on Windows yet.
+
+Messages you will see:
+
+| Situation | Message |
+|-----------|---------|
+| No token | `Planner.plan needs a token, and this request had none. Send the header Authorization: Bearer <token>.` |
+| Malformed token | `The Authorization header of this request is not a bearer token I can read.` |
+| Not accepted | `The token was not accepted for Planner.plan.` |
+| Validator trouble | `I could not ask the validator (python3 validator.py): it did not answer in 5 seconds. Nothing was run.` |
+| Open network | `Planner.plan is protected, and this address is plain http and open to other computers: 0.0.0.0:8080. A token would travel in the open.` |
+| Over stdio | `Planner.plan is protected, and stdio has no place for a token.` |
+| Linked call | `Admin.delete is protected, and the request that reached Planner did not carry an accepted token.` |
+| Task | `This task needs the token that started it.` |
+| Misspelled key | `[auth] has the setting protec, which I do not know. Nothing was served, because a misspelled setting could leave messages open.` |
+| Name that matches nothing | `[auth] protect lists Planner.plann, but no such message is declared.` |
+| Cannot receive | `files is a built in tool, so it cannot receive a token.` |
+| Destination wants a token | `Researcher refused the call: it needs a token. If it needs the one this agent received, add Researcher to forward in [auth].` |
+| Too old | `This project needs Metagente 0.1.4 or newer, and this is 0.1.3. Nothing was run.` |
+| Bad version shape | `[version] minimum must be three numbers like 0.1.4, but it says ">=0.1.4".` |
+| Missing `[version]` | `Warning: [auth] is set but [version] is not. Metagente 0.1.3 and older ignore [auth] and would serve every message without protection.` |
 
 ### New in 0.1.3: secure connections (https on both ends)
 
@@ -312,6 +388,8 @@ agent over A2A, and the Researcher reads a web page through an MCP tool. Both us
 | Samples | [samples/](samples/) |
 | Secure connections end to end (new in 0.1.3) | [multi-agent-samples/https-chain](multi-agent-samples/https-chain/README.md) |
 | Secure connections guide for beginners: what a certificate is, make a self-signed one, run the whole chain over https (new in 0.1.3) | [docs/secure-connections-guide.md](docs/secure-connections-guide.md) |
+| Bearer tokens end to end: three agents, one token, break it on purpose (new in 0.1.4) | [multi-agent-samples/auth-chain](multi-agent-samples/auth-chain/README.md) |
+| Authentication guide: what Metagente does and does not do, the validator, the cache, the checklist (new in 0.1.4) | [docs/authentication-guide.md](docs/authentication-guide.md) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Roadmap
@@ -323,9 +401,10 @@ agent over A2A, and the Researcher reads a web page through an MCP tool. Both us
 | Dynamic link between agents | Built |
 | Multi-line text and external parameters (v0.1.2) | Built |
 | Secure connections: https on both ends, `[secure]`, proxy, Python interoperability (v0.1.3) | Built |
+| Minimum version and bearer tokens for served messages (v0.1.4) | Built |
 | v1.0: MCP server, A2A Agent Card, A2A tasks, `serve` | Built, release pending |
 | **Project Barracuda:** an agent server invoked via A2A or a frontend, with a queue for batch triggering | Next |
-| Long running tasks, authentication for served agents, agent registry, scheduling, A2A streaming | Ideas |
+| Long running tasks, tokens for unattended callers, agent registry, scheduling, A2A streaming | Ideas |
 
 ## How it is built
 
@@ -344,6 +423,8 @@ Every feature starts as a spec, so you can read why things are the way they are:
 | v0.1.2 plan, tasks and contracts | `specs/004-multiline-text-and-parameters/` |
 | v0.1.3 feature spec (secure communication by declaration) | `specs/005-secure-by-declaration/spec.md` |
 | v0.1.3 plan, tasks, research and contracts | `specs/005-secure-by-declaration/` |
+| v0.1.4 feature spec (minimum version and authentication of served messages) | `specs/006-version-and-served-auth/spec.md` |
+| v0.1.4 plan, tasks, research and contracts | `specs/006-version-and-served-auth/` |
 
 ## Contributing
 
@@ -354,4 +435,4 @@ If Metagente is useful to you, a star on the repository helps other people find 
 
 ## Version
 
-**v0.1.3.** Semantic versioning. The version is kept in this file, in `CHANGELOG.md` and in `Cargo.toml`.
+**v0.1.4.** Semantic versioning. The version is kept in this file, in `CHANGELOG.md` and in `Cargo.toml`.

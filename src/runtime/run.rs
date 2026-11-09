@@ -83,7 +83,15 @@ pub fn pick_agent(
 
 /// Builds the runtime for a project: configuration, and the model when one is set up.
 pub fn build_runtime(start: &Path) -> MgResult<Arc<Runtime>> {
-    let config = Config::load(start)?;
+    let mut config = Config::load(start)?; // 0.1.4: mut, for the warnings below
+    // 0.1.4: a name in [auth] that matches nothing could leave a message open, so it stops run and serve (D17)
+    if let Some(policy) = &config.auth {
+        let mut report = super::auth_check::validate(policy, &config.parameters);
+        if !report.errors.is_empty() {
+            return Err(report.errors.remove(0));
+        }
+        config.auth_warnings.extend(report.warnings);
+    }
     // 0.1.3: the model provider and the agents share one set of network clients
     let net = Arc::new(super::net::ClientSet::for_config(&config));
     let llm = crate::llm::providers::from_config_with(&config, net.clone())?;

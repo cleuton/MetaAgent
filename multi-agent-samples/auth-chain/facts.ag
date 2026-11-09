@@ -1,0 +1,9 @@
+# 0.1.4: the last link of the chain: a tool served over MCP, protected like the others
+agent Facts
+  goal "Know a few facts"
+  accepts lookup topic
+  on lookup
+    if topic is "rust"
+      reply "Rust is a systems language"
+    otherwise
+      reply "No fact about {topic}"

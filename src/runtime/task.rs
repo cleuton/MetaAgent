@@ -67,6 +67,9 @@ pub struct CallContext {
     pub deadline: Option<Instant>,
     /// 0.1.3: true when a secure agent that loaded this one with `link` makes its network calls https only (D14).
     pub secure: bool,
+    /// 0.1.4: what the network request behind this call carried (the token, and whether it was accepted). `None` for
+    /// `metagente run` and `on start`: no request, nothing is judged. Never printed: `Token` hides itself.
+    pub auth: Option<std::sync::Arc<super::auth::RequestAuth>>,
 }
 
 impl CallContext {
@@ -76,6 +79,7 @@ impl CallContext {
             task_id: task_id.into(),
             deadline: None,
             secure: false, // 0.1.3
+            auth: None,    // 0.1.4
         }
     }
 

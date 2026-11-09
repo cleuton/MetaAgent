@@ -1,6 +1,6 @@
 [package]
 name = "metagente"
-version = "0.1.3" # 0.1.3: new release
+version = "0.1.4" # 0.1.4: new release (0.1.3: new release)
 edition = "2024"
 description = "Metagente: an interpreted 4GL for building AI agents with MCP and A2A built in"
 license = "Apache-2.0"
@@ -34,6 +34,7 @@ tokio-rustls = "0.26" # 0.1.3: TLS for `metagente serve`
 x509-parser = "0.18" # 0.1.3: the dates of the serving certificate (pure Rust)
 hyper-util = { version = "0.1", features = ["server-auto", "tokio", "service"] } # 0.1.3: the accept loop that serves the routers over TLS
 rustls-pki-types = "1" # 0.1.3: reading the PEM certificate and key
+sha2 = "0.10" # 0.1.4: the fingerprint of a token (a hash only; no token or key library is added)
 
 [dev-dependencies]
 tempfile = "3"

@@ -18,6 +18,8 @@ pub struct McpConnection {
     command: String,
     net: std::sync::Arc<crate::runtime::net::ClientSet>, // 0.1.3: certificates, proxy, and what tool programs inherit
     live: Mutex<Option<Live>>,
+    /// 0.1.4: the bearer token of one request, for a tool listed in `[auth] forward`. The session is this token's alone.
+    token: Option<crate::runtime::auth::Token>,
 }
 
 /// Splits a command line into words, honoring simple quotes.
@@ -58,6 +60,19 @@ impl McpConnection {
             command,
             net,
             live: Mutex::new(None),
+            token: None, // 0.1.4
+        }
+    }
+
+    /// 0.1.4: a connection that sends `Authorization: Bearer <token>` on everything it says.
+    pub fn with_token(
+        command: String,
+        net: std::sync::Arc<crate::runtime::net::ClientSet>,
+        token: crate::runtime::auth::Token,
+    ) -> McpConnection {
+        McpConnection {
+            token: Some(token),
+            ..McpConnection::new(command, net)
         }
     }
 
@@ -73,10 +88,11 @@ impl McpConnection {
         {
             // 0.1.3: the same certificate and proxy rules as every other connection
             let client = self.net.mcp_for(&self.command)?;
-            let transport = StreamableHttpClientTransport::with_client(
-                client,
-                StreamableHttpClientTransportConfig::with_uri(self.command.clone()),
-            );
+            let mut config = StreamableHttpClientTransportConfig::with_uri(self.command.clone());
+            if let Some(token) = &self.token {
+                config = config.auth_header(token.expose()); // 0.1.4
+            }
+            let transport = StreamableHttpClientTransport::with_client(client, config);
             match ().serve(transport).await {
                 Ok(service) => service,
                 Err(e) => {
@@ -87,7 +103,13 @@ impl McpConnection {
                         &who,
                         "check the address and that the server is running",
                     );
+                    let raw = e.to_string().to_lowercase();
                     let text = plain_text(&short(&e.to_string())); // 0.1.3: no library type names
+                    // 0.1.4: the server wants a token (or did not accept this one); McpTool words it
+                    if is_unauthorized(&raw) {
+                        return Err(ToolError::new("the tool server answered 401")
+                            .related(["auth-401".to_string()]));
+                    }
                     drop(e);
                     if let Some(outcome) = known {
                         return Err(self.net.finish(outcome).await);
@@ -194,6 +216,10 @@ impl McpConnection {
                         Err(ToolError::new(format!("the tool `{}` refused the call: {}", action, e.message))
                             .fix("check the values you sent against what the tool expects"))
                     }
+                    Err(e) if is_unauthorized(&e.to_string()) => {
+                        // 0.1.4: the tool server wants a token (or did not accept this one); McpTool words it
+                        Err(ToolError::new("the tool server answered 401").related(["auth-401".to_string()]))
+                    }
                     Err(e) => Err(ToolError::new(format!(
                         "the tool server stopped answering while running `{}`{}",
                         action,
@@ -214,6 +240,13 @@ impl McpConnection {
             e
         })
     }
+}
+
+/// 0.1.4: does what a library says about a failed call mean "HTTP 401"?
+fn is_unauthorized(text: &str) -> bool {
+    let t = text.to_lowercase();
+    // rmcp words an HTTP 401 as "auth required"
+    t.contains("401") || t.contains("unauthorized") || t.contains("auth required")
 }
 
 /// 0.1.3: text from a library that names Rust types is not shown to people.

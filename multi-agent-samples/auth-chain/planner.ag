@@ -1,0 +1,8 @@
+# 0.1.4: the first agent of the chain: it asks the Researcher, and the caller's token goes along (see metagente.toml)
+agent Planner
+  goal "Ask the Researcher about a topic"
+  remote Researcher at "http://127.0.0.1:8081"
+  accepts plan topic
+  on plan
+    answer = Researcher.research topic: topic
+    reply "Planner got: {answer}"

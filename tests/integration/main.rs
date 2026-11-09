@@ -3,6 +3,24 @@ mod common;
 mod a2a_client;
 mod a2a_interop;
 mod a2a_unsupported;
+#[cfg(unix)] // 0.1.4: these tests use shell script validators; Windows is not tested yet
+mod auth_cache; // 0.1.4: the cache of accepted tokens
+#[cfg(unix)] // 0.1.4: these tests use shell script validators; Windows is not tested yet
+mod auth_chain_sample; // 0.1.4: the sample multi-agent-samples/auth-chain end to end
+#[cfg(unix)] // 0.1.4: these tests use shell script validators; Windows is not tested yet
+mod auth_concurrency; // 0.1.4: 50 at once, 8 validators at most
+#[cfg(unix)] // 0.1.4: these tests use shell script validators; Windows is not tested yet
+mod auth_fail_closed; // 0.1.4: every mistake refuses
+#[cfg(unix)] // 0.1.4: these tests use shell script validators; Windows is not tested yet
+mod auth_forward; // 0.1.4: passing the token on
+#[cfg(unix)] // 0.1.4: these tests use shell script validators; Windows is not tested yet
+mod auth_no_leak; // 0.1.4: no token in any output
+#[cfg(unix)] // 0.1.4: these tests use shell script validators; Windows is not tested yet
+mod auth_regression; // 0.1.4: nothing changes without the new sections
+#[cfg(unix)] // 0.1.4: these tests use shell script validators; Windows is not tested yet
+mod auth_side_doors; // 0.1.4: link and GetTask
+#[cfg(unix)] // 0.1.4: these tests use shell script validators; Windows is not tested yet
+mod auth_validator; // 0.1.4: protecting a message and the validator contract
 mod builtin_tools;
 mod dynamic_link;
 mod env_scope;
@@ -30,6 +48,8 @@ mod parameters; // 0.1.2: @parameters.name
 mod perf;
 mod permissions;
 mod python_interop; // 0.1.3: Python and Metagente agents call each other
+#[cfg(unix)] // 0.1.4: these tests use shell script validators; Windows is not tested yet
+mod python_interop_auth; // 0.1.4: bearer tokens between Metagente and the Python SDK
 mod sample_city_briefing;
 mod secure_agent; // 0.1.3: a secure agent speaks https in every direction
 mod secure_check; // 0.1.3: `metagente check` and the secure list
@@ -45,3 +65,4 @@ mod serve_bind;
 mod serve_concurrency;
 mod think;
 mod timeout;
+mod version_gate; // 0.1.4: [version] minimum

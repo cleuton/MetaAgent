@@ -3,6 +3,8 @@
 
 pub mod a2a;
 pub mod a2a_tls; // 0.1.3: the same server over TLS
+pub mod auth; // 0.1.4: validators, `metagente serve` children and hand written calls for [auth]
+pub mod fake_a2a; // 0.1.4: a fake A2A agent that records the Authorization header
 pub mod fake_mcp;
 pub mod proxy; // 0.1.3: test proxy
 pub mod python; // 0.1.3: the Python side of the interop tests

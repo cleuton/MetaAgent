@@ -671,6 +671,37 @@ ca_file = "certs/dev-cert.pem"   # trust this certificate and keep checking (pre
 - `[network.proxy]` (`url`, `username_env`, `password_env`, `no_proxy`, `pass_to_tools`) and the standard `HTTPS_PROXY`,
   `HTTP_PROXY` and `NO_PROXY` variables are described in the [README](../README.md#network-and-networkproxy-every-key).
 
+## Version and auth
+
+*(new in 0.1.4)* **No syntax changed.** `[version]` and `[auth]` live only in `metagente.toml`; an `.ag` file cannot add,
+change or weaken them.
+
+```toml
+[version]
+minimum = "0.1.4"                # three whole numbers, no leading zeros; a floor, not a range
+
+[auth]
+validator = "python3 validator.py"           # the program that decides; token on standard input, exit 0 = accepted
+protect = ["Planner.plan", "Worker.*"]       # Agent.message, or Agent.* for every message of an agent
+forward = ["Researcher", "kb"]               # remote agents and http(s) tools that receive the caller's token
+cache_seconds = 30                           # 0 to 300 (default 0); only accepted tokens are remembered
+timeout_seconds = 5                          # 1 to 60 (default 5)
+```
+
+- `[version]` is read first. A Metagente older than `minimum` stops with *"This project needs Metagente X or newer,
+  and this is Y. Nothing was run."* even if the file has settings it does not know. Without the section nothing is
+  checked.
+- Every mistake in `[auth]` stops `run`, `serve` and `check`: an unknown key, a wrong type, a value out of range,
+  `protect` without `validator`, a `protect` entry that matches no message declared under the folder of `metagente.toml`,
+  and a `forward` name that cannot receive a token (a stdio tool, a built in tool, the model). A `forward` name that
+  matches nothing is a warning.
+- A protected message answers HTTP 401 without an accepted token (503 when the validator is broken). Over `link`, a
+  protected message needs a request that carried an accepted token. A task from a protected message is read back only
+  with the same token.
+- A protected message is never served in the open: plain http on another address and `--mcp stdio` are refused.
+- Both sections are read when `run` or `serve` starts; a later edit while serving prints a line asking for a restart.
+- Everything is explained in [authentication-guide.md](authentication-guide.md).
+
 ## Errors
 
 Every problem says where it is, what went wrong, and how to fix it. Problems that come from outside
@@ -778,12 +809,12 @@ Fix: serve the agent over https, so its card points to an https address
 | Command | Does |
 |---------|------|
 | `metagente run FILE.ag MESSAGE key=value ...` | Run an agent. Add `--agent Name` to pick one from a file with several. |
-| `metagente check FILE.ag` | Look for problems without running. Since 0.1.2 it also verifies that every `@parameters.name` exists in `metagente.toml`. Since 0.1.3 it also checks `[secure]` (an `http://` address for a secure name, a name that matches nothing, a local tool listed as secure) and `[network]`. It never needs a certificate. |
-| `metagente new NAME` | Create a starter agent and `metagente.toml`. |
+| `metagente check FILE.ag` | Look for problems without running. Since 0.1.2 it also verifies that every `@parameters.name` exists in `metagente.toml`. Since 0.1.3 it also checks `[secure]` (an `http://` address for a secure name, a name that matches nothing, a local tool listed as secure) and `[network]`. It never needs a certificate. Since 0.1.4 it also reads `[version]` and `[auth]` first, and stops on the same mistakes as `run` and `serve`. |
+| `metagente new NAME` | Create a starter agent and `metagente.toml` (since 0.1.4 it also writes `[version]` and a commented `[auth]` example). |
 | `metagente serve FILE.ag --a2a PORT --mcp stdio` | Keep agents running for other programs. Local only unless `--public`. |
 | `metagente serve FILE.ag --mcp PORT` | Serve every agent of the file as MCP tools at `http://HOST:PORT/mcp`. Each message an agent `accepts` is a tool called `Agent.message`, and another agent calls it with `tool NAME from mcp "http://HOST:PORT/mcp"` and `NAME.Agent.message`. See [An agent as a tool](tutorial.md#an-agent-as-a-tool). |
 | `metagente serve FILE.ag --a2a PORT --tls-cert FILE --tls-key FILE` | (new in 0.1.3) Answer over https, from a PEM certificate and key. The flags win over `[serve] tls_cert` and `tls_key`. |
-| `metagente --version` | Show the version (`metagente 0.1.3`). |
+| `metagente --version` | Show the version (`metagente 0.1.4`). |
 
 Examples:
 
@@ -819,3 +850,13 @@ metagente serve weather.ag --mcp 9000
   `allow_self_signed`, `self_signed_hosts`, `llm_allow_self_signed`), authenticated proxies, and `pass_to_tools`.
 - New plain-language errors for all of it, and `metagente check` validates it. `metagente new` writes commented examples.
 - Everything that worked in 0.1.2 works in 0.1.3 and behaves the same way.
+
+## Changes in 0.1.4
+
+- **No syntax changed.** No new keyword; the `.ag` language is the same.
+- **`[version] minimum`** in `metagente.toml` makes an older Metagente refuse the project. See [Version and auth](#version-and-auth).
+- **`[auth]`** protects messages with a bearer token that a program of yours validates, passes the token on to the
+  names you list, and keeps accepted tokens for a few seconds if you ask. See the [authentication guide](authentication-guide.md).
+- New plain-language errors for all of it; `metagente check` validates it; `metagente new` writes `[version]` and a
+  commented `[auth]` example.
+- Everything that worked in 0.1.3 works in 0.1.4 and behaves the same way.

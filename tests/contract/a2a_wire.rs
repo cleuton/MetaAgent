@@ -263,3 +263,32 @@ async fn responses_declare_json() {
             .starts_with("application/json")
     );
 }
+
+// 0.1.4: with no [auth] the server never answers anything but HTTP 200 for JSON-RPC, as in 0.1.3 (FR-051). The 401, 503
+// and 413 answers are in tests/integration/auth_*.rs, where a validator and a metagente.toml exist.
+#[tokio::test]
+async fn without_auth_every_answer_is_http_200_even_for_a_request_with_a_bearer_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = a2a::start(dir.path(), a2a::WEATHER, None).await;
+    let client = reqwest::Client::new();
+    for token in [None, Some("Bearer anything"), Some("malformed token here")] {
+        let mut request = client
+            .post(endpoint(&server.base))
+            .header("Content-Type", "application/json")
+            .body(
+                json!({"jsonrpc": "2.0", "id": 7, "method": "SendMessage", "params": user_text("ask city=Faro")})
+                    .to_string(),
+            );
+        if let Some(t) = token {
+            request = request.header("Authorization", t);
+        }
+        let response = request.send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert!(response.headers().get("www-authenticate").is_none());
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(
+            body["result"]["task"]["artifacts"][0]["parts"][0]["text"],
+            "sunny in Faro"
+        );
+    }
+}

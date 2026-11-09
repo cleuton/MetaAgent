@@ -64,6 +64,29 @@ impl Tool for LinkTool {
         let target = self.target()?;
         cycle::check(&ctx.chain, &target.name)?;
         interface::check(&target, action, &args)?;
+        // 0.1.4: a protected message cannot be reached by a side door (D13): a request that came over the network must
+        // have carried a token the validator accepted. `metagente run` and `on start` have no request, so no check.
+        if let Some(auth) = &ctx.auth {
+            if auth.policy.is_protected(&target.name, action) && !auth.accepted {
+                let first = ctx
+                    .chain
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or(&self.caller.name);
+                eprintln!(
+                    "Refused {}.{}: the request that reached {} did not carry an accepted token.",
+                    target.name, action, first
+                );
+                return Err(ToolError::new(format!(
+                    "{}.{} is protected, and the request that reached {} did not carry an accepted token.",
+                    target.name, action, first
+                ))
+                .fix(format!(
+                    "protect the first message too, or call {}.{} over the network",
+                    target.name, action
+                )));
+            }
+        }
         let agent = Agent::new(self.rt.clone(), target.clone())?;
         // 0.1.3: a linked agent runs in the context of the agent that loaded it (D14): when the loader is secure, whether
         // by its own name or because a secure agent loaded it, everything the linked agent calls must be https too

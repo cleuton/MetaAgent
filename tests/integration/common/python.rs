@@ -109,6 +109,22 @@ pub fn start_agent(python: &str, tls: Option<(&Path, &Path)>) -> (Guard, String)
     (Guard(child), format!("{}://127.0.0.1:{}", scheme, port))
 }
 
+/// 0.1.4: like `start_agent`, and the agent writes the Authorization header of each task request to `record`.
+pub fn start_recording_agent(python: &str, record: &Path) -> (Guard, String) {
+    let port = free_port();
+    let mut child = Command::new(python)
+        .arg(root().join("tests/interop/python_agent/agent.py"))
+        .args(["--port", &port.to_string()])
+        .arg("--record")
+        .arg(record)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("start the Python agent");
+    wait_ready(&mut child, "the Python agent");
+    (Guard(child), format!("http://127.0.0.1:{}", port))
+}
+
 /// Runs the Python A2A client and returns what it printed as JSON, or its error text.
 pub fn client(python: &str, base: &str, extra: &[&str]) -> Result<serde_json::Value, String> {
     let out = Command::new(python)

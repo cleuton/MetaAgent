@@ -1,0 +1,8 @@
+# 0.1.4: the second agent: it looks a fact up in the Facts tool, and the caller's token goes along
+agent Researcher
+  goal "Look up a fact using a tool"
+  tool kb from mcp "http://127.0.0.1:9000/mcp"
+  accepts research topic
+  on research
+    fact = kb.Facts.lookup topic: topic
+    reply fact

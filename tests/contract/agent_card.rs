@@ -102,3 +102,87 @@ async fn every_served_agent_has_its_own_card_and_the_interface_points_back_at_th
     .unwrap();
     assert_eq!(missing.status().as_u16(), 404);
 }
+
+// 0.1.4: the card of an agent with no protected message is exactly what 0.1.3 produced; one with a protected message
+// declares the Bearer requirement the way A2A 1.0 provides (FR-020, FR-051).
+mod auth_card {
+    use metagente::a2a::card::{agent_card, agent_card_for};
+    use metagente::runtime::auth::{AuthPolicy, ProtectEntry};
+
+    fn weather() -> metagente::lang::AgentDef {
+        metagente::lang::parse_file("w.ag", None, crate::a2a::WEATHER)
+            .unwrap()
+            .remove(0)
+    }
+
+    fn policy(protect: &[(&str, Option<&str>)]) -> AuthPolicy {
+        AuthPolicy {
+            validator: Some("v".into()),
+            protect: protect
+                .iter()
+                .map(|(a, m)| ProtectEntry {
+                    agent: a.to_string(),
+                    message: m.map(String::from),
+                    text: String::new(),
+                    line: 0,
+                })
+                .collect(),
+            forward: vec![],
+            cache_seconds: 0,
+            timeout_seconds: 5,
+            base_dir: ".".into(),
+            file: "metagente.toml".into(),
+            forward_line: 0,
+            cache: Default::default(),
+        }
+    }
+
+    #[test]
+    fn no_policy_and_no_protected_message_give_the_0_1_3_card() {
+        let def = weather();
+        let old = agent_card(&def, "http://x/a2a");
+        assert_eq!(old, agent_card_for(&def, "http://x/a2a", None));
+        // a policy that protects another agent changes nothing
+        let other = policy(&[("Other", Some("go"))]);
+        assert_eq!(old, agent_card_for(&def, "http://x/a2a", Some(&other)));
+        let text = old.to_string();
+        assert!(!text.contains("securitySchemes") && !text.contains("securityRequirements"));
+    }
+
+    #[test]
+    fn a_protected_skill_declares_the_bearer_requirement_and_the_others_do_not() {
+        let def = weather();
+        let p = policy(&[("Weather", Some("ask"))]);
+        let card = agent_card_for(&def, "http://x/a2a", Some(&p));
+        assert_eq!(
+            card["securitySchemes"]["bearer"]["httpAuthSecurityScheme"]["scheme"],
+            "Bearer"
+        );
+        assert!(
+            card["securitySchemes"]["bearer"]["httpAuthSecurityScheme"]
+                .get("bearerFormat")
+                .is_none()
+        );
+        let skills = card["skills"].as_array().unwrap();
+        let ask = skills.iter().find(|s| s["id"] == "ask").unwrap();
+        let broken = skills.iter().find(|s| s["id"] == "broken").unwrap();
+        assert_eq!(
+            ask["securityRequirements"][0]["schemes"]["bearer"]["list"],
+            serde_json::json!([])
+        );
+        assert!(broken.get("securityRequirements").is_none());
+        assert!(
+            card.get("securityRequirements").is_none(),
+            "no card-level requirement: some skills are public"
+        );
+        // a star protects every skill
+        let all = agent_card_for(&def, "http://x/a2a", Some(&policy(&[("Weather", None)])));
+        assert!(
+            all["skills"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|s| s.get("securityRequirements").is_some())
+        );
+    }
+}

@@ -1,10 +1,13 @@
 //! Receives A2A tasks: serves Agent Cards and answers `SendMessage` and `GetTask`.
 
-use super::card::agent_card;
+use super::card::agent_card_for; // 0.1.4
 use super::message::interpret;
 use super::store::TaskStore;
 use super::{new_id, now_text};
 use crate::lang::AgentDef;
+use crate::runtime::auth::{
+    Fingerprint, Refusal, RequestAuth, Verdict, judge, parse_authorization,
+};
 use crate::runtime::interpreter::Agent;
 use crate::runtime::serve::Served;
 use crate::runtime::task::CallContext;
@@ -85,7 +88,14 @@ async fn default_card(
 ) -> Response {
     let base = base_of(&state, &headers, &uri);
     match state.served.default() {
-        Some(def) => json_response(StatusCode::OK, agent_card(&def, &format!("{}/a2a", base))),
+        Some(def) => json_response(
+            StatusCode::OK,
+            agent_card_for(
+                &def,
+                &format!("{}/a2a", base),
+                state.served.rt.config.auth.as_deref(),
+            ),
+        ),
         None => json_response(
             StatusCode::NOT_FOUND,
             json!({"error": "this server has no agents"}),
@@ -103,7 +113,11 @@ async fn named_card(
     match state.served.find(&name) {
         Some(def) => json_response(
             StatusCode::OK,
-            agent_card(&def, &format!("{}/agents/{}/a2a", base, name)),
+            agent_card_for(
+                &def,
+                &format!("{}/agents/{}/a2a", base, name),
+                state.served.rt.config.auth.as_deref(),
+            ),
         ),
         None => json_response(
             StatusCode::NOT_FOUND,
@@ -133,6 +147,8 @@ struct RpcError {
     code: i64,
     message: String,
     reason: &'static str,
+    /// 0.1.4: a refusal for a missing or bad token is a real HTTP 401 or 503, decided before the JSON-RPC answer
+    refusal: Option<Refusal>,
 }
 
 impl RpcError {
@@ -141,6 +157,17 @@ impl RpcError {
             code,
             message: message.into(),
             reason,
+            refusal: None, // 0.1.4
+        }
+    }
+    /// 0.1.4: print the line for the operator, and answer with the real HTTP status.
+    fn refused(refusal: Refusal) -> RpcError {
+        eprintln!("{}", refusal.log);
+        RpcError {
+            code: -32000,
+            message: refusal.message.clone(),
+            reason: refusal.reason,
+            refusal: Some(refusal),
         }
     }
     fn to_json(&self, id: &Json) -> Json {
@@ -185,7 +212,23 @@ async fn handle_rpc(
             StatusCode::OK,
             json!({"jsonrpc": "2.0", "id": id, "result": result}),
         ),
-        Err(e) => json_response(StatusCode::OK, e.to_json(&id)),
+        Err(e) => match &e.refusal {
+            // 0.1.4: 401 asks for a bearer token; 503 means the validator is broken
+            Some(r) => {
+                let mut response = json_response(
+                    StatusCode::from_u16(r.status).unwrap_or(StatusCode::UNAUTHORIZED),
+                    crate::runtime::auth::refusal_json(&id, r),
+                );
+                if r.status == 401 {
+                    response.headers_mut().insert(
+                        header::WWW_AUTHENTICATE,
+                        header::HeaderValue::from_static("Bearer"),
+                    );
+                }
+                response
+            }
+            None => json_response(StatusCode::OK, e.to_json(&id)),
+        },
     }
 }
 
@@ -217,8 +260,8 @@ async fn dispatch(
     let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
     let params = request.get("params").cloned().unwrap_or(Json::Null);
     match method {
-        "SendMessage" => send_message(state, agent, params).await,
-        "GetTask" => get_task(state, params),
+        "SendMessage" => send_message(state, agent, params, headers).await, // 0.1.4: headers, for the token
+        "GetTask" => get_task(state, params, headers).await,
         other => Err(RpcError::new(
             -32601,
             "METHOD_NOT_FOUND",
@@ -230,7 +273,11 @@ async fn dispatch(
     }
 }
 
-fn get_task(state: &Arc<A2aState>, params: Json) -> Result<Json, RpcError> {
+async fn get_task(
+    state: &Arc<A2aState>,
+    params: Json,
+    headers: &HeaderMap,
+) -> Result<Json, RpcError> {
     let id = params.get("id").and_then(|v| v.as_str()).ok_or_else(|| {
         RpcError::new(
             -32602,
@@ -238,7 +285,7 @@ fn get_task(state: &Arc<A2aState>, params: Json) -> Result<Json, RpcError> {
             "Invalid parameters: \"id\" is required",
         )
     })?;
-    state.store.get(id).ok_or_else(|| {
+    let task = state.store.get(id).ok_or_else(|| {
         RpcError::new(
             -32001,
             "TASK_NOT_FOUND",
@@ -247,7 +294,41 @@ fn get_task(state: &Arc<A2aState>, params: Json) -> Result<Json, RpcError> {
                 id
             ),
         )
-    })
+    })?;
+    // 0.1.4: a task that came from a protected message is read only with the token that started it (D14)
+    if let (Some(owner), Some(policy)) =
+        (state.store.owner(id), state.served.rt.config.auth.clone())
+    {
+        let (verdict, token) = judge(&policy, parse_authorization(headers)).await;
+        let same = token.as_ref().map(Fingerprint::of).as_ref() == Some(&owner);
+        match verdict {
+            Verdict::Accepted if same => {}
+            Verdict::Unavailable(_) => {
+                if let Some(r) = verdict.refusal("this task", &policy) {
+                    return Err(RpcError::refused(r));
+                }
+            }
+            other => {
+                let why = match other {
+                    Verdict::Accepted => {
+                        "a different token than the one that started the task".to_string()
+                    }
+                    Verdict::NoToken => "no token".to_string(),
+                    Verdict::Malformed => "malformed Authorization header".to_string(),
+                    _ => "token not accepted".to_string(),
+                };
+                return Err(RpcError::refused(Refusal {
+                    status: 401,
+                    reason: "UNAUTHENTICATED",
+                    message:
+                        "This task needs the token that started it. Ask again with that token."
+                            .to_string(),
+                    log: format!("Refused GetTask for a protected task: {}.", why),
+                }));
+            }
+        }
+    }
+    Ok(task)
 }
 
 fn part_for(value: &Value) -> Json {
@@ -279,10 +360,34 @@ fn task_json(
     task
 }
 
+/// 0.1.4: judges the token of a request once the message is known (D8, FR-015). A public message is not judged; a
+/// token it carried is still kept, because its handler may pass it on to a listed destination.
+async fn judge_request(
+    state: &Arc<A2aState>,
+    agent: &str,
+    message: &str,
+    headers: &HeaderMap,
+) -> Result<Option<std::sync::Arc<RequestAuth>>, RpcError> {
+    let Some(policy) = state.served.rt.config.auth.clone() else {
+        return Ok(None);
+    };
+    let parsed = parse_authorization(headers);
+    if !policy.is_protected(agent, message) {
+        let token = parsed.ok().flatten();
+        return Ok(Some(RequestAuth::network(policy, token, false)));
+    }
+    let (verdict, token) = judge(&policy, parsed).await;
+    match verdict.refusal(&format!("{}.{}", agent, message), &policy) {
+        None => Ok(Some(RequestAuth::network(policy, token, true))),
+        Some(r) => Err(RpcError::refused(r)),
+    }
+}
+
 async fn send_message(
     state: &Arc<A2aState>,
     agent: Option<String>,
     params: Json,
+    headers: &HeaderMap, // 0.1.4
 ) -> Result<Json, RpcError> {
     let message = params
         .get("message")
@@ -336,6 +441,8 @@ async fn send_message(
             format!("Not supported: {}", why),
         )
     })?;
+    // 0.1.4: the message is known, so the token is judged now: before the values are checked and before anything runs
+    let auth = judge_request(state, &def.name, &name, headers).await?;
     if let Err(d) = crate::link::interface::check(&def, &name, &args) {
         let fix = d
             .suggestion
@@ -363,10 +470,18 @@ async fn send_message(
         task_json(&task_id, &context, "TASK_STATE_SUBMITTED", None, None),
         false,
     );
+    // 0.1.4: a task from a protected message remembers the fingerprint of the token that started it (D14)
+    if let Some(a) = &auth {
+        if a.accepted {
+            if let Some(fp) = &a.fingerprint {
+                state.store.set_owner(&task_id, fp.clone());
+            }
+        }
+    }
     let run = {
         let state = state.clone();
         let (task_id, context) = (task_id.clone(), context.clone());
-        async move { run_task(state, def, name, args, task_id, context).await }
+        async move { run_task(state, def, name, args, task_id, context, auth).await }
     };
     if immediately {
         state.store.put(
@@ -392,6 +507,7 @@ async fn run_task(
     args: crate::tools::Args,
     task_id: String,
     context: String,
+    auth: Option<std::sync::Arc<RequestAuth>>, // 0.1.4
 ) -> Json {
     state.store.put(
         &task_id,
@@ -400,9 +516,9 @@ async fn run_task(
     );
     let outcome = match Agent::new(state.served.rt.clone(), def) {
         Ok(agent) => {
-            agent
-                .handle(&message, args, &CallContext::new(task_id.clone()))
-                .await
+            let mut ctx = CallContext::new(task_id.clone());
+            ctx.auth = auth; // 0.1.4: the token travels with this request only
+            agent.handle(&message, args, &ctx).await
         }
         Err(d) => Err(d),
     };

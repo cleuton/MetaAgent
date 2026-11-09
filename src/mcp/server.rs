@@ -1,5 +1,6 @@
 //! MCP server: every `accepts` entry of the served agents becomes a tool named `Agent.message`.
 
+use crate::runtime::auth::RequestAuth; // 0.1.4
 use crate::runtime::interpreter::Agent;
 use crate::runtime::serve::Served;
 use crate::runtime::task::{CallContext, new_task_id};
@@ -67,7 +68,7 @@ impl ServerHandler for AgentsMcp {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, McpError> {
         let name = request.name.to_string();
         let known: Vec<String> = self.tools().iter().map(|t| t.name.to_string()).collect();
@@ -102,6 +103,26 @@ impl ServerHandler for AgentsMcp {
                 None,
             ));
         }
+        // 0.1.4: what the request carried, put there by the door in front of /mcp (stdio has no request: no token)
+        let auth = self.served.rt.config.auth.clone().map(|policy| {
+            let mark = context
+                .extensions
+                .get::<axum::http::request::Parts>()
+                .and_then(|parts| parts.extensions.get::<super::gate::McpAuthMark>().cloned());
+            match mark {
+                Some(m) => RequestAuth::network(policy, m.token, m.accepted),
+                None => RequestAuth::network(policy, None, false),
+            }
+        });
+        // the second check: a protected tool never runs without an accepted token, even if the door was skipped
+        if let Some(a) = &auth {
+            if a.policy.is_protected(agent_name, message) && !a.accepted {
+                return Err(McpError::invalid_params(
+                    format!("{} needs a token, and this request had none.", name),
+                    None,
+                ));
+            }
+        }
         let args: Args = request
             .arguments
             .unwrap_or_default()
@@ -110,9 +131,9 @@ impl ServerHandler for AgentsMcp {
             .collect();
         let outcome = match Agent::new(self.served.rt.clone(), def) {
             Ok(agent) => {
-                agent
-                    .handle(message, args, &CallContext::new(new_task_id()))
-                    .await
+                let mut ctx = CallContext::new(new_task_id());
+                ctx.auth = auth; // 0.1.4: the token travels with this request only
+                agent.handle(message, args, &ctx).await
             }
             Err(d) => Err(d),
         };

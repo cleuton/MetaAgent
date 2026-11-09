@@ -3,6 +3,7 @@
 use super::{PROTOCOL_VERSION, new_id};
 use crate::lang::RemoteDecl;
 use crate::runtime::Runtime;
+use crate::runtime::auth::{Token, forward_token}; // 0.1.4
 use crate::runtime::task::CallContext;
 use crate::runtime::value::Value;
 use crate::tools::{ActionInfo, Args, Tool, ToolError, closest_name};
@@ -154,21 +155,83 @@ impl RemoteTool {
             .await
     }
 
-    async fn rpc(&self, endpoint: &str, method: &str, params: Json) -> Result<Json, ToolError> {
+    /// 0.1.4: the token of the request being handled, when this remote is listed in `[auth] forward` (D12). The second
+    /// value says whether the name is listed at all, for the message when the other side asks for a token.
+    fn token_for(&self, ctx: &CallContext) -> (Option<Token>, bool) {
+        let listed = ctx
+            .auth
+            .as_ref()
+            .is_some_and(|a| a.policy.forwards_to(&self.decl.name));
+        (
+            forward_token(ctx.auth.as_ref(), &self.decl.name).cloned(),
+            listed,
+        )
+    }
+
+    async fn rpc(
+        &self,
+        endpoint: &str,
+        method: &str,
+        params: Json,
+        token: Option<&Token>, // 0.1.4: only for a listed name, only for calls that run something
+        listed: bool,
+    ) -> Result<Json, ToolError> {
         let body =
             json!({"jsonrpc": "2.0", "id": new_id("req"), "method": method, "params": params});
-        let client = self.rt.net.agents_for(endpoint)?;
-        let response = match client
+        // 0.1.4: a token is never sent in the open, and never along a redirect: that client follows none
+        let client = match token {
+            Some(_) => {
+                if crate::runtime::auth_check::is_open_plain_http(endpoint) {
+                    return Err(ToolError::new(format!(
+                        "{} is in [auth] forward, but its address is plain http and not on this computer: the token would travel in the open.",
+                        self.decl.name
+                    ))
+                    .fix("use an https:// address"));
+                }
+                self.rt.net.mcp_for(endpoint)?
+            }
+            None => self.rt.net.agents_for(endpoint)?,
+        };
+        let mut request = client
             .post(endpoint)
             .header("A2A-Version", PROTOCOL_VERSION)
-            .header("Content-Type", "application/json")
-            .body(body.to_string())
-            .send()
-            .await
-        {
+            .header("Content-Type", "application/json");
+        if let Some(t) = token {
+            request = request.header("Authorization", format!("Bearer {}", t.expose()));
+        }
+        let response = match request.body(body.to_string()).send().await {
             Ok(r) => r,
             Err(e) => return Err(self.unreachable(endpoint, &e).await),
         };
+        // 0.1.4: the other side asks for a token, or does not accept the one that was passed on (FR-034)
+        if response.status().as_u16() == 401 {
+            return Err(if token.is_some() {
+                ToolError::new(format!(
+                    "{} refused the call: it did not accept the token this agent received.",
+                    self.decl.name
+                ))
+                .fix("check that it uses the same validator, and that the token has not expired")
+            } else if listed {
+                ToolError::new(format!(
+                    "{} refused the call: it needs a token, and this request had none to pass on.",
+                    self.decl.name
+                ))
+                .fix("call this agent with a token, or make the message that reaches it public")
+            } else {
+                ToolError::new(format!(
+                    "{} refused the call: it needs a token. If it needs the one this agent received, add {} to forward in [auth].",
+                    self.decl.name, self.decl.name
+                ))
+                .fix(format!("add {} to forward in [auth] of metagente.toml", self.decl.name))
+            });
+        }
+        if token.is_some() && response.status().is_redirection() {
+            return Err(ToolError::new(format!(
+                "{} answered with a redirect, and I do not send a token along a redirect.",
+                self.decl.name
+            ))
+            .fix("use the final address in the remote declaration"));
+        }
         let answer: Json = response.json().await.map_err(|_| {
             ToolError::new(format!("{} did not answer with readable data", endpoint))
                 .fix("check that the address belongs to an A2A agent")
@@ -247,6 +310,21 @@ impl Tool for RemoteTool {
     }
 
     async fn call(&self, action: &str, args: Args, ctx: &CallContext) -> Result<Value, ToolError> {
+        // 0.1.4: a listed destination at an open plain http address is refused before any connection (D12, FR-031)
+        if self
+            .rt
+            .config
+            .auth
+            .as_ref()
+            .is_some_and(|p| p.forwards_to(&self.decl.name))
+            && crate::runtime::auth_check::is_open_plain_http(&self.decl.url)
+        {
+            return Err(ToolError::new(format!(
+                "{} is in [auth] forward, but its address is plain http and not on this computer: the token would travel in the open.",
+                self.decl.name
+            ))
+            .fix("use an https:// address"));
+        }
         // 0.1.3: before any connection is opened, and again for where the card sends the tasks
         self.guard(ctx.secure, &self.decl.url, None)?;
         let card = self.card().await?;
@@ -279,7 +357,16 @@ impl Tool for RemoteTool {
             },
             "configuration": {"returnImmediately": false},
         });
-        let result = self.rpc(&card.endpoint, "SendMessage", params).await?;
+        let (token, listed) = self.token_for(ctx); // 0.1.4
+        let result = self
+            .rpc(
+                &card.endpoint,
+                "SendMessage",
+                params,
+                token.as_ref(),
+                listed,
+            )
+            .await?;
         if let Some(message) = result.get("message") {
             return Ok(Value::Text(text_of_message(message)));
         }
@@ -324,7 +411,13 @@ impl Tool for RemoteTool {
                         .to_string();
                     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
                     let polled = self
-                        .rpc(&card.endpoint, "GetTask", json!({"id": id}))
+                        .rpc(
+                            &card.endpoint,
+                            "GetTask",
+                            json!({"id": id}),
+                            token.as_ref(),
+                            listed,
+                        )
                         .await?;
                     task = polled;
                 }

@@ -279,6 +279,28 @@ says so (`ca_file`, or for development `allow_self_signed`).
   [multi-agent-samples/https-chain](../multi-agent-samples/https-chain/README.md).
 - The words of `[secure]` and the errors: [syntax.md](syntax.md#secure-connections).
 
+## 11. Protect a message (new in 0.1.4)
+
+Some messages should only be used by people with a token. Metagente does not log anyone in; it asks a small program of
+yours. Write the program (7 lines of Python in the sample), then add this to `metagente.toml` and change no `.ag` file:
+
+```toml
+[version]
+minimum = "0.1.4"
+
+[auth]
+validator = "python3 validator.py"
+protect = ["Hello.greet"]
+```
+
+Now `Hello.greet` answers `401` unless the request has `Authorization: Bearer <token>` and your program exits with
+code 0 for that token. The token goes to the program on standard input. Everything else about the agent stays the same.
+
+- A complete chain with a token passed from agent to agent, and how to break it on purpose:
+  [multi-agent-samples/auth-chain](../multi-agent-samples/auth-chain/README.md).
+- What to check before real users: [authentication-guide.md](authentication-guide.md).
+- The words of `[version]` and `[auth]`: [syntax.md](syntax.md#version-and-auth).
+
 ## Where next
 
 - Decisions, loops and putting results together: [guide.md](guide.md)

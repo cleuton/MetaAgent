@@ -93,13 +93,27 @@ class PyraExecutor(AgentExecutor):
         await TaskUpdater(event_queue, context.task_id, context.context_id).cancel()
 
 
-def build_app(base_url: str) -> Starlette:
+def build_app(base_url: str, record: str | None = None) -> Starlette:
     card = build_card(base_url)
     handler = DefaultRequestHandler(
         agent_executor=PyraExecutor(), task_store=InMemoryTaskStore(), agent_card=card
     )
     routes = create_agent_card_routes(card) + create_jsonrpc_routes(handler, "/")
-    return Starlette(routes=routes)
+    app = Starlette(routes=routes)
+    if record:
+        # 0.1.4: writes the Authorization header of every task request to a file, so a test can see what a Metagente
+        # agent passed on ("-" when there was none)
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        class Recorder(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                if request.method == "POST":
+                    with open(record, "a") as f:
+                        f.write(request.headers.get("authorization", "-") + "\n")
+                return await call_next(request)
+
+        app.add_middleware(Recorder)
+    return app
 
 
 def main() -> None:
@@ -108,11 +122,12 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--tls-cert")
     parser.add_argument("--tls-key")
+    parser.add_argument("--record")  # 0.1.4: file that receives the Authorization header of each task request
     args = parser.parse_args()
     scheme = "https" if args.tls_cert else "http"
     base = f"{scheme}://{args.host}:{args.port}"
     config = uvicorn.Config(
-        build_app(base),
+        build_app(base, args.record),
         host=args.host,
         port=args.port,
         ssl_certfile=args.tls_cert,

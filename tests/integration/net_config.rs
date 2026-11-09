@@ -37,13 +37,14 @@ fn err(o: &Output) -> String {
 }
 
 #[test]
-fn the_version_is_0_1_3() {
+fn the_version_is_0_1_4() {
+    // 0.1.4: the version moved on; this test only ever pinned the version number (it was `the_version_is_0_1_3`)
     let dir = tempfile::tempdir().unwrap();
     let out = metagente(dir.path()).arg("--version").output().unwrap();
     assert!(
         String::from_utf8_lossy(&out.stdout)
             .trim_end()
-            .ends_with("0.1.3")
+            .ends_with("0.1.4")
     );
 }
 

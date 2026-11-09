@@ -1,5 +1,7 @@
 //! Running agents: the interpreter and everything it needs.
 
+pub mod auth; // 0.1.4: bearer tokens for served messages, passing them on
+pub mod auth_check; // 0.1.4: [auth] against the agents of the project
 pub mod config;
 pub mod interpreter;
 pub mod net; // 0.1.3: certificates, proxies and plain-language network failures
@@ -11,7 +13,9 @@ pub mod serve;
 pub mod task;
 pub mod think;
 pub mod tls; // 0.1.3: https for `metagente serve`
+pub mod validator; // 0.1.4: runs the program that decides if a token is good
 pub mod value;
+pub mod version; // 0.1.4: the minimum Metagente a project needs
 
 use crate::llm::Llm;
 use crate::tools::state::StateMap;

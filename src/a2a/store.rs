@@ -10,6 +10,8 @@ pub const RETENTION: Duration = Duration::from_secs(10 * 60);
 struct Stored {
     task: Value,
     finished_at: Option<Instant>,
+    /// 0.1.4: set for a task that came from a protected message: the fingerprint of the token that started it
+    owner: Option<crate::runtime::auth::Fingerprint>,
 }
 
 #[derive(Default)]
@@ -36,8 +38,31 @@ impl TaskStore {
             let keep = self.retention();
             tasks.retain(|_, s| s.finished_at.map(|t| t.elapsed() < keep).unwrap_or(true));
             let finished_at = if terminal { Some(Instant::now()) } else { None };
-            tasks.insert(id.to_string(), Stored { task, finished_at });
+            // 0.1.4: replacing a task keeps its owner
+            let owner = tasks.get(id).and_then(|s| s.owner.clone());
+            tasks.insert(
+                id.to_string(),
+                Stored {
+                    task,
+                    finished_at,
+                    owner,
+                },
+            );
         }
+    }
+
+    /// 0.1.4: marks a stored task as coming from a protected message.
+    pub fn set_owner(&self, id: &str, owner: crate::runtime::auth::Fingerprint) {
+        if let Ok(mut tasks) = self.tasks.lock() {
+            if let Some(stored) = tasks.get_mut(id) {
+                stored.owner = Some(owner);
+            }
+        }
+    }
+
+    /// 0.1.4: the fingerprint of the token that started a protected task (None for an ordinary task).
+    pub fn owner(&self, id: &str) -> Option<crate::runtime::auth::Fingerprint> {
+        self.tasks.lock().ok()?.get(id)?.owner.clone()
     }
 
     pub fn get(&self, id: &str) -> Option<Value> {

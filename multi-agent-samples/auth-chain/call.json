@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"m-1","role":"ROLE_USER","parts":[{"data":{"skill":"plan","arguments":{"topic":"rust"}},"mediaType":"application/json"}],"metadata":{"skill":"plan"}}}}

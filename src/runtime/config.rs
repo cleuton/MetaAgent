@@ -97,6 +97,9 @@ pub struct Config {
     // 0.1.3: the [secure] section and the TLS keys of [serve]
     pub secure: SecureConfig,
     pub serve_tls: ServeTlsConfig,
+    // 0.1.4: the [auth] section (None when metagente.toml has none) and the warnings that go with [version] and [auth]
+    pub auth: Option<std::sync::Arc<super::auth::AuthPolicy>>,
+    pub auth_warnings: Vec<String>,
 }
 
 impl Default for Config {
@@ -113,11 +116,22 @@ impl Default for Config {
             network: NetworkConfig::default(), // 0.1.3: certificate checks on, no proxy unless the environment has one
             secure: SecureConfig::default(), // 0.1.3: nothing is declared secure unless metagente.toml says so
             serve_tls: ServeTlsConfig::default(), // 0.1.3: plain http unless a certificate and key are given
+            auth: None, // 0.1.4: nothing is protected unless metagente.toml has [auth]
+            auth_warnings: Vec::new(),
         }
     }
 }
 
-const KNOWN_TOP: &[&str] = &["llm", "runtime", "serve", "parameters", "network", "secure"]; // 0.1.2: parameters, 0.1.3: network and secure
+const KNOWN_TOP: &[&str] = &[
+    "llm",
+    "runtime",
+    "serve",
+    "parameters",
+    "network",
+    "secure",
+    "version", // 0.1.4
+    "auth",    // 0.1.4
+]; // 0.1.2: parameters, 0.1.3: network and secure
 const KNOWN_NETWORK: &[&str] = &[
     "allow_self_signed",
     "llm_allow_self_signed",
@@ -136,6 +150,13 @@ const KNOWN_LLM: &[&str] = &["provider", "model", "api_key_env", "base_url"];
 const KNOWN_RUNTIME: &[&str] = &["timeout_seconds", "think_max_steps"];
 const KNOWN_SERVE: &[&str] = &["a2a_port", "bind", "tls_cert", "tls_key"]; // 0.1.3: tls_cert and tls_key
 const KNOWN_SECURE: &[&str] = &["agents", "tools", "llm"]; // 0.1.3: the [secure] section
+const KNOWN_AUTH: &[&str] = &[
+    "validator",
+    "protect",
+    "forward",
+    "cache_seconds",
+    "timeout_seconds",
+]; // 0.1.4: the [auth] section
 
 impl Config {
     /// Loads the configuration found by walking up from `start`, then applies environment overrides.
@@ -235,6 +256,11 @@ impl Config {
             }
             d
         })?;
+        // 0.1.4: [version] is the first thing read, so a project written for a newer Metagente shows the version
+        // message and not a list of settings this version does not know (D18)
+        let version_warnings =
+            super::version::check(&value, &text, path, super::version::running())?;
+        self.warnings.extend(version_warnings);
         self.check_keys(&value);
         let get_str = |table: &toml::Table, key: &str| {
             table
@@ -280,6 +306,13 @@ impl Config {
         if let Some(sec) = value.get("secure") {
             self.secure = read_secure(sec, &text, path)?;
         }
+        // 0.1.4: which messages need a token (read only from metagente.toml, D1)
+        if let Some(a) = value.get("auth") {
+            self.auth = Some(std::sync::Arc::new(read_auth(a, &text, path)?));
+            if !value.contains_key("version") {
+                self.auth_warnings.push(NO_VERSION_WARNING.to_string());
+            }
+        }
         if let Some(sv) = value.get("serve").and_then(|v| v.as_table()) {
             // 0.1.3: the certificate and key `serve` presents; paths are relative to the folder of metagente.toml
             self.serve_tls = read_serve_tls(sv, &text, path)?;
@@ -304,6 +337,10 @@ impl Config {
             }
             // 0.1.2: parameters have names of their own, so none of them is "unknown"
             if key == "parameters" {
+                continue;
+            }
+            // 0.1.4: [version] and [auth] check their own keys while they are read
+            if key == "version" || key == "auth" {
                 continue;
             }
             // 0.1.3: [network] checks its own keys (and [network.proxy]) while it is read
@@ -357,7 +394,8 @@ impl Config {
 // ---------- 0.1.3: [network] ----------
 
 /// The line (1-based) of `key` inside `[section]` of metagente.toml, or 0 when it cannot be found.
-fn line_of(text: &str, section: &str, key: &str) -> usize {
+pub(crate) fn line_of(text: &str, section: &str, key: &str) -> usize {
+    // 0.1.4: also used by [version] and [auth]
     let mut current = String::new();
     for (i, line) in text.lines().enumerate() {
         let t = line.trim();
@@ -673,4 +711,184 @@ fn read_network(value: &toml::Value, text: &str, path: &Path) -> Result<NetworkC
     pr.no_proxy = want_list(proxy, "no_proxy", "network.proxy", text, path)?;
     pr.pass_to_tools = want_bool(proxy, "pass_to_tools", "network.proxy", text, path)?;
     Ok(net)
+}
+
+// ---------- 0.1.4: [auth] ----------
+
+const NO_VERSION_WARNING: &str = "[auth] is set but [version] is not. Metagente 0.1.3 and older ignore [auth] and would serve every message without protection. Add a [version] section with minimum = \"0.1.4\".";
+
+/// 0.1.4: the `[auth]` section. Every mistake that could leave a message open is an error (D17).
+fn read_auth(
+    value: &toml::Value,
+    text: &str,
+    path: &Path,
+) -> Result<super::auth::AuthPolicy, Diagnostic> {
+    use super::auth::{AcceptedCache, AuthPolicy, ProtectEntry};
+    let Some(table) = value.as_table() else {
+        return Err(network_problem(
+            path,
+            line_of(text, "", "auth"),
+            "`auth` must be a section, written [auth]".to_string(),
+            "write [auth] on a line of its own, then validator = \"...\" and protect = [\"Agent.message\"] under it",
+        ));
+    };
+    for key in table.keys() {
+        if !KNOWN_AUTH.contains(&key.as_str()) {
+            let fix = match crate::tools::closest_name(key, KNOWN_AUTH.iter().copied()) {
+                Some(s) => format!("did you mean `{}`?", s),
+                None => format!("the settings are: {}", KNOWN_AUTH.join(", ")),
+            };
+            return Err(network_problem(
+                path,
+                line_of(text, "auth", key),
+                format!(
+                    "[auth] has the setting {}, which I do not know. Nothing was served, because a misspelled setting could leave messages open.",
+                    key
+                ),
+                &fix,
+            ));
+        }
+    }
+    let validator = want_text(table, "validator", "auth", text, path)?;
+    let protect_texts = want_list(table, "protect", "auth", text, path)?;
+    let forward = want_list(table, "forward", "auth", text, path)?;
+    let number = |key: &str, low: i64, high: i64, default: i64| -> Result<u64, Diagnostic> {
+        match table.get(key) {
+            None => Ok(default as u64),
+            Some(toml::Value::Integer(n)) if (low..=high).contains(n) => Ok(*n as u64),
+            Some(toml::Value::Integer(n)) => Err(network_problem(
+                path,
+                line_of(text, "auth", key),
+                format!(
+                    "`{}` in [auth] must be a whole number from {} to {}, but it is {}",
+                    key, low, high, n
+                ),
+                &format!("write {} = {}", key, default),
+            )),
+            Some(_) => Err(network_problem(
+                path,
+                line_of(text, "auth", key),
+                format!(
+                    "`{}` in [auth] must be a whole number from {} to {}",
+                    key, low, high
+                ),
+                &format!("write {} = {}", key, default),
+            )),
+        }
+    };
+    let cache_seconds = number("cache_seconds", 0, 300, 0)?;
+    let timeout_seconds = number("timeout_seconds", 1, 60, 5)?;
+    let protect_line = line_of(text, "auth", "protect");
+    let mut protect = Vec::new();
+    for entry in protect_texts {
+        let (agent, message) = match entry.split_once('.') {
+            Some((a, m)) if !a.is_empty() && !m.is_empty() && !m.contains('.') => (a, m),
+            _ => {
+                return Err(network_problem(
+                    path,
+                    protect_line,
+                    format!(
+                        "[auth] protect lists `{}`, which is not Agent.message",
+                        entry
+                    ),
+                    "write each entry like \"Planner.plan\", or \"Planner.*\" for every message of an agent",
+                ));
+            }
+        };
+        protect.push(ProtectEntry {
+            agent: agent.to_string(),
+            message: if message == "*" {
+                None
+            } else {
+                Some(message.to_string())
+            },
+            text: entry.clone(),
+            line: protect_line,
+        });
+    }
+    if !protect.is_empty() && validator.is_none() {
+        return Err(network_problem(
+            path,
+            protect_line,
+            "[auth] protects messages but has no validator.".to_string(),
+            "add validator = \"...\" (the program that decides if a token is good)",
+        ));
+    }
+    Ok(AuthPolicy {
+        validator,
+        protect,
+        forward,
+        cache_seconds,
+        timeout_seconds,
+        base_dir: path.parent().map(Path::to_path_buf).unwrap_or_default(),
+        file: path.display().to_string(),
+        forward_line: line_of(text, "auth", "forward"),
+        cache: AcceptedCache::new(),
+    })
+}
+
+/// 0.1.4: what `metagente check` needs from `[version]` and `[auth]`: the same reading as `run` and `serve`, so the
+/// same mistakes stop it. A metagente.toml that is not valid TOML at all is ignored by `check`, as before.
+pub struct AuthForCheck {
+    pub policy: Option<std::sync::Arc<super::auth::AuthPolicy>>,
+    pub warnings: Vec<String>,
+    pub params: Params,
+}
+
+impl Config {
+    pub fn auth_for_check(start: &Path) -> Result<AuthForCheck, Diagnostic> {
+        let start = std::fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
+        let mut dir = Some(start.as_path());
+        while let Some(d) = dir {
+            let candidate = d.join("metagente.toml");
+            if candidate.is_file() {
+                let empty = AuthForCheck {
+                    policy: None,
+                    warnings: Vec::new(),
+                    params: Params::default(),
+                };
+                let Ok(text) = std::fs::read_to_string(&candidate) else {
+                    return Ok(empty);
+                };
+                let Ok(table) = text.parse::<toml::Table>() else {
+                    return Ok(empty);
+                };
+                let mut warnings =
+                    super::version::check(&table, &text, &candidate, super::version::running())?;
+                let mut params = Params::default();
+                if let Some(p) = table.get("parameters").and_then(|v| v.as_table()) {
+                    for (name, v) in p {
+                        match v.as_str() {
+                            Some(t) => {
+                                params.values.insert(name.clone(), t.to_string());
+                            }
+                            None => {
+                                params.not_text.insert(name.clone());
+                            }
+                        }
+                    }
+                }
+                let policy = match table.get("auth") {
+                    Some(a) => {
+                        if !table.contains_key("version") {
+                            warnings.push(NO_VERSION_WARNING.to_string());
+                        }
+                        Some(std::sync::Arc::new(read_auth(a, &text, &candidate)?))
+                    }
+                    None => None,
+                };
+                return Ok(AuthForCheck {
+                    policy,
+                    warnings,
+                    params,
+                });
+            }
+            dir = d.parent();
+        }
+        Ok(AuthForCheck {
+            policy: None,
+            warnings: Vec::new(),
+            params: Params::default(),
+        })
+    }
 }

@@ -1,0 +1,10 @@
+# 0.1.4: the whole chain uses this one file
+[version]
+minimum = "0.1.4"
+
+[auth]
+validator = "python3 validator.py"
+protect = ["Planner.plan", "Researcher.research", "Facts.lookup"]
+forward = ["Researcher", "kb"]
+cache_seconds = 30
+timeout_seconds = 5
