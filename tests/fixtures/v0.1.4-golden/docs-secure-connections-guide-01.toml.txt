@@ -1,0 +1,13 @@
+exit: 1
+--- stdout
+--- stderr
+Warning: [secure] lists the agent Planner, but no agent or remote called Planner is declared here.
+Warning: [secure] lists the agent Researcher, but no agent or remote called Researcher is declared here.
+Warning: [secure] lists the agent Facts, but no agent or remote called Facts is declared here.
+Warning: [secure] lists the tool kb, but no tool called kb is declared here.
+Warning: tls_cert in [serve] points to <tmp>/certs/dev-cert.pem, which does not exist yet; `metagente serve` will need it
+Warning: tls_key in [serve] points to <tmp>/certs/dev-key.pem, which does not exist yet; `metagente serve` will need it
+Problem on line 10 of <tmp>/metagente.toml: I could not read the certificate file <tmp>/certs/dev-cert.pem: No such file or directory (os error 2)
+Fix: check the path of ca_file (a relative path starts at the folder of metagente.toml)
+
+Found 1 problem.

@@ -1,6 +1,6 @@
 [package]
 name = "metagente"
-version = "0.1.4" # 0.1.4: new release (0.1.3: new release)
+version = "0.1.5" # 0.1.5: new release (0.1.4: new release, 0.1.3: new release)
 edition = "2024"
 description = "Metagente: an interpreted 4GL for building AI agents with MCP and A2A built in"
 license = "Apache-2.0"

@@ -1,0 +1,14 @@
+[secure]
+agents = ["Bob", "Researcher"]   # agents you call with `remote`, and agents you serve
+tools  = ["weather", "http"]     # tools reached over an address; "http" is the built in tool
+llm    = false                   # true: the model address must be https
+
+[serve]
+tls_cert = "certs/dev-cert.pem"  # the certificate and key `metagente serve` presents (or --tls-cert, --tls-key)
+tls_key  = "certs/dev-key.pem"
+
+[network]
+ca_file = "certs/dev-cert.pem"   # trust this certificate and keep checking (preferred)
+# allow_self_signed = true       # development only; prints a warning on every run, serve and check
+# self_signed_hosts = ["127.0.0.1"]
+# llm_allow_self_signed = false  # the same, for the language model only

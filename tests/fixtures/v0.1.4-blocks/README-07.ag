@@ -1,0 +1,9 @@
+agent Recruiter
+  goal "Screen candidate resumes"
+  accepts screen resume
+  on screen
+    reply think """You are a technical recruiter.
+Read the resume below and list its three strongest points.
+
+Resume:
+{resume}"""

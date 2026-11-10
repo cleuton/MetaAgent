@@ -1,0 +1,7 @@
+agent Reader
+  goal "Read a file and show what is in it"
+  tool file
+  accepts show
+  on show
+    text = file.read path: "notes.txt"
+    reply text

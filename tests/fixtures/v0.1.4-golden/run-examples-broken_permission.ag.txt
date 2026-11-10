@@ -1,0 +1,7 @@
+exit: 1
+--- stdout
+--- stderr
+Problem on line 7 of broken_permission.ag: `../secrets.txt` is outside the folder this agent may use (data/)
+  7 |     text = file.read path: "../secrets.txt"
+    |            ^
+Fix: keep the file inside that folder, or change the agent's declaration, for example: tool file "other-folder/"

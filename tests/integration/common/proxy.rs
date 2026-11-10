@@ -39,6 +39,9 @@ pub enum Mode {
     Status(u16),
     /// Accepts the connection and never answers.
     Silent,
+    /// 0.1.5: needs no login; every CONNECT, whatever host it names, is piped to this local port. It lets a test fake
+    /// the official address of a service (the program still asks for api.openai.com) with no way into the program.
+    Route(u16),
 }
 
 /// A proxy that is itself reached over https, with this certificate.
@@ -135,7 +138,7 @@ async fn handle<S: AsyncRead + AsyncWrite + Unpin>(
     }
     let allowed = match &mode {
         Mode::Login(u, p) => login_ok(&head, u, p),
-        Mode::Open => true,
+        Mode::Open | Mode::Route(_) => true, // 0.1.5: Route
         Mode::OfferScheme(_) => false,
         Mode::Status(_) | Mode::Silent => true,
     };
@@ -174,14 +177,24 @@ async fn handle<S: AsyncRead + AsyncWrite + Unpin>(
         return Ok(());
     }
     if method == "CONNECT" {
-        let Ok(mut upstream) = TcpStream::connect(&target).await else {
+        // 0.1.5: a Route proxy pipes to its local port and records the host that was asked for
+        let destination = match &mode {
+            Mode::Route(port) => format!("127.0.0.1:{}", port),
+            _ => target.clone(),
+        };
+        if let Mode::Route(_) = &mode {
+            note(&format!("CONNECT {} route", target));
+        }
+        let Ok(mut upstream) = TcpStream::connect(&destination).await else {
             note(&format!("CONNECT {} fail", target));
             client
                 .write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
                 .await?;
             return Ok(());
         };
-        note(&format!("CONNECT {} ok", target));
+        if !matches!(&mode, Mode::Route(_)) {
+            note(&format!("CONNECT {} ok", target));
+        }
         client
             .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
             .await?;

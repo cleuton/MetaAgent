@@ -100,6 +100,9 @@ pub struct Config {
     // 0.1.4: the [auth] section (None when metagente.toml has none) and the warnings that go with [version] and [auth]
     pub auth: Option<std::sync::Arc<super::auth::AuthPolicy>>,
     pub auth_warnings: Vec<String>,
+    // 0.1.5: the named models, [llm.NAME] (empty unless metagente.toml has sub-tables of [llm]), and the warnings about them
+    pub models: super::models::ModelSet,
+    pub model_warnings: Vec<String>,
 }
 
 impl Default for Config {
@@ -118,6 +121,8 @@ impl Default for Config {
             serve_tls: ServeTlsConfig::default(), // 0.1.3: plain http unless a certificate and key are given
             auth: None, // 0.1.4: nothing is protected unless metagente.toml has [auth]
             auth_warnings: Vec::new(),
+            models: super::models::ModelSet::default(), // 0.1.5: no named model unless metagente.toml has [llm.NAME]
+            model_warnings: Vec::new(),
         }
     }
 }
@@ -239,6 +244,36 @@ impl Config {
         Ok(NetworkConfig::default())
     }
 
+    /// 0.1.5: for `metagente check`: the named models, read like `run` and `serve` read them, so the same mistakes stop
+    /// it. A metagente.toml that is not valid TOML at all is ignored by `check`, as before.
+    pub fn models_for_check(start: &Path) -> Result<ModelsForCheck, Diagnostic> {
+        let start = std::fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
+        let mut dir = Some(start.as_path());
+        while let Some(d) = dir {
+            let candidate = d.join("metagente.toml");
+            if candidate.is_file() {
+                let empty = ModelsForCheck::default();
+                let Ok(text) = std::fs::read_to_string(&candidate) else {
+                    return Ok(empty);
+                };
+                let Ok(table) = text.parse::<toml::Table>() else {
+                    return Ok(empty);
+                };
+                let Some(llm) = table.get("llm").and_then(|v| v.as_table()) else {
+                    return Ok(empty);
+                };
+                let models = super::models::read_models(llm, &text, &candidate)?;
+                let mut warnings = Vec::new();
+                if !models.is_empty() && !table.contains_key("version") {
+                    warnings.push(models.no_version_warning());
+                }
+                return Ok(ModelsForCheck { models, warnings });
+            }
+            dir = d.parent();
+        }
+        Ok(ModelsForCheck::default())
+    }
+
     fn read_file(&mut self, path: &Path) -> Result<(), Diagnostic> {
         let text = std::fs::read_to_string(path).map_err(|e| {
             Diagnostic::new(format!("I could not read {}: {}", path.display(), e))
@@ -274,6 +309,11 @@ impl Config {
             self.llm.model = get_str(llm, "model");
             self.llm.api_key_env = get_str(llm, "api_key_env");
             self.llm.base_url = get_str(llm, "base_url");
+            // 0.1.5: the named models. A wrong sub-table stops the load (D11); a project without one reads nothing here.
+            self.models = super::models::read_models(llm, &text, path)?;
+            if !self.models.is_empty() && !value.contains_key("version") {
+                self.model_warnings.push(self.models.no_version_warning());
+            }
         }
         if let Some(rt) = value.get("runtime").and_then(|v| v.as_table()) {
             if let Some(n) = rt.get("timeout_seconds").and_then(|v| v.as_integer()) {
@@ -378,7 +418,11 @@ impl Config {
                 _ => KNOWN_SERVE,
             };
             if let Some(table) = v.as_table() {
-                for inner in table.keys() {
+                for (inner, inner_value) in table.iter() {
+                    // 0.1.5: a table under [llm] is a named model, [llm.NAME]; it is read and checked by `models`
+                    if key == "llm" && inner_value.is_table() {
+                        continue;
+                    }
                     if !known.contains(&inner.as_str()) {
                         self.warnings.push(format!(
                             "metagente.toml has an unknown setting `{}` in [{}]; I ignored it",
@@ -833,6 +877,13 @@ pub struct AuthForCheck {
     pub policy: Option<std::sync::Arc<super::auth::AuthPolicy>>,
     pub warnings: Vec<String>,
     pub params: Params,
+}
+
+/// 0.1.5: what `metagente check` needs from `[llm.NAME]`.
+#[derive(Default)]
+pub struct ModelsForCheck {
+    pub models: super::models::ModelSet,
+    pub warnings: Vec<String>,
 }
 
 impl Config {

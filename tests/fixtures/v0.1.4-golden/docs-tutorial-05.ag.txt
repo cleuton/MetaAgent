@@ -1,0 +1,15 @@
+exit: 1
+--- stdout
+--- stderr
+Problem on line 3 of block.ag: I could not find an agent called Weather
+  3 |   link Weather
+    |   ^
+  I looked:
+    in the same file
+    <tmp>/Weather.ag
+    <tmp>/weather.ag
+    <tmp>/agents/Weather.ag
+    <tmp>/agents/weather.ag
+Fix: create weather.ag next to block.ag, or write the path yourself: link Weather from "path/to/file.ag"
+
+Found 1 problem.

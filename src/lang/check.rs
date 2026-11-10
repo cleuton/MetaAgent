@@ -492,3 +492,59 @@ pub fn check_all(agents: &[Arc<AgentDef>]) -> Vec<Diagnostic> {
     problems.sort_by_key(|d| (d.line, d.column));
     problems
 }
+
+/// 0.1.5: every nickname an agent uses with `think ... using NAME`, with its place. `metagente check`, `run` and `serve`
+/// compare them with the models of `[llm.NAME]` (FR-010).
+pub fn thinks_using(def: &AgentDef) -> Vec<(String, Span)> {
+    fn in_expr(e: &Expr, out: &mut Vec<(String, Span)>) {
+        match e {
+            Expr::Think { prompt, model, .. } => {
+                if let Some((name, span)) = model {
+                    out.push((name.clone(), *span));
+                }
+                in_expr(prompt, out);
+            }
+            Expr::List(items, _) => items.iter().for_each(|i| in_expr(i, out)),
+            Expr::Not(inner, _) => in_expr(inner, out),
+            Expr::And(a, b, _) | Expr::Or(a, b, _) => {
+                in_expr(a, out);
+                in_expr(b, out);
+            }
+            Expr::Compare { left, right, .. } => {
+                in_expr(left, out);
+                in_expr(right, out);
+            }
+            Expr::Call(call) => call.args.iter().for_each(|(_, a)| in_expr(a, out)),
+            _ => {}
+        }
+    }
+    fn in_stmts(stmts: &[Stmt], out: &mut Vec<(String, Span)>) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Assign { value, .. }
+                | Stmt::Reply { value, .. }
+                | Stmt::Fail { value, .. } => in_expr(value, out),
+                Stmt::Expr { expr, .. } => in_expr(expr, out),
+                Stmt::If {
+                    cond,
+                    then,
+                    otherwise,
+                    ..
+                } => {
+                    in_expr(cond, out);
+                    in_stmts(then, out);
+                    in_stmts(otherwise, out);
+                }
+                Stmt::For { iter, body, .. } => {
+                    in_expr(iter, out);
+                    in_stmts(body, out);
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for handler in def.handlers.iter().chain(def.start.iter()) {
+        in_stmts(&handler.body, &mut out);
+    }
+    out
+}

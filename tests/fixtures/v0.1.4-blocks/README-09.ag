@@ -1,0 +1,7 @@
+agent Screener
+  goal "Screen a resume with the help of a remote reader"
+  remote leitor at @parameters.a2a_leitor
+  accepts screen candidate
+  on screen
+    resume = leitor.read candidate: candidate
+    reply think @parameters.prompt1

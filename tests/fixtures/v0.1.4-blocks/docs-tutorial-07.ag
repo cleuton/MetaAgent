@@ -1,0 +1,8 @@
+agent Facts
+  goal "Know a few facts"
+  accepts lookup topic
+  on lookup
+    if topic is "rust"
+      reply "Rust is a systems language"
+    otherwise
+      reply "No fact about {topic}"

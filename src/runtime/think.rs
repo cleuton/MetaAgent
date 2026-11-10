@@ -24,16 +24,48 @@ fn sanitize(name: &str) -> String {
 pub async fn think(
     agent: &Agent,
     prompt: String,
+    // 0.1.5: the nickname after `using`; None is the model of [llm], exactly as in 0.1.4
+    model: Option<&str>,
     ctx: &CallContext,
     span: Span,
 ) -> MgResult<Value> {
-    let Some(llm) = agent.rt.llm.clone() else {
-        return Err(agent
-            .diag(span, "this agent needs a language model to think, and none is set up")
-            .fix("run `metagente new` to create a metagente.toml, or add an [llm] section to it (see the tutorial)"));
-    };
+    let (llm, address, service): (std::sync::Arc<dyn crate::llm::Llm>, Option<String>, &str) =
+        match model {
+            None => {
+                let Some(llm) = agent.rt.llm.clone() else {
+                    return Err(agent
+                        .diag(span, "this agent needs a language model to think, and none is set up")
+                        .fix("run `metagente new` to create a metagente.toml, or add an [llm] section to it (see the tutorial)"));
+                };
+                (
+                    llm,
+                    crate::llm::providers::model_address(&agent.rt.config),
+                    "",
+                )
+            }
+            // 0.1.5: a named model: its address is always the official https one, so the secure rules are satisfied
+            Some(nickname) => {
+                let (Some(llm), Some(named)) = (
+                    agent.rt.models.get(nickname).cloned(),
+                    agent.rt.config.models.get(nickname),
+                ) else {
+                    return Err(agent
+                        .diag(span, "this agent asks for a model that is not set up")
+                        .fix("add it to metagente.toml as [llm.NAME] and restart"));
+                };
+                let (address, service) = match named.provider {
+                    crate::runtime::models::ProviderKind::Anthropic => {
+                        (crate::llm::providers::ANTHROPIC_ADDRESS, "anthropic")
+                    }
+                    crate::runtime::models::ProviderKind::OpenAi => {
+                        (crate::llm::providers::OPENAI_ADDRESS, "openai")
+                    }
+                };
+                (llm, Some(address.to_string()), service)
+            }
+        };
     // 0.1.3: an http model address is refused for `[secure] llm` and for a secure agent, before anything is sent
-    if let Some(address) = crate::llm::providers::model_address(&agent.rt.config) {
+    if let Some(address) = address {
         crate::runtime::secure::decide(
             &agent.rt.net.secure(),
             &crate::runtime::secure::Caller::new(&agent.def.name, ctx.secure),
@@ -86,21 +118,52 @@ pub async fn think(
             messages: messages.clone(),
             tools: specs.clone(),
         };
-        let reply = tokio::time::timeout(
-            Duration::from_secs(agent.rt.config.timeout_seconds.max(1) * 4),
-            llm.complete(&request),
-        )
-        .await
-        .map_err(|_| {
-            agent
-                .diag(span, "the language model took too long to answer")
-                .fix("try again in a moment")
-        })?
-        .map_err(|e| {
-            agent
-                .diag(span, format!("the language model could not answer: {}", e))
-                .fix("check the [llm] settings in metagente.toml and that the key variable is set")
-        })?;
+        let reply = match model {
+            None => tokio::time::timeout(
+                Duration::from_secs(agent.rt.config.timeout_seconds.max(1) * 4),
+                llm.complete(&request),
+            )
+            .await
+            .map_err(|_| {
+                agent
+                    .diag(span, "the language model took too long to answer")
+                    .fix("try again in a moment")
+            })?
+            .map_err(|e| {
+                agent
+                    .diag(span, format!("the language model could not answer: {}", e))
+                    .fix("check the [llm] settings in metagente.toml and that the key variable is set")
+            })?,
+            // 0.1.5: a named model writes its own plain sentences (no wrapper, no text from the service)
+            Some(nickname) => match tokio::time::timeout(
+                Duration::from_secs(agent.rt.config.timeout_seconds.max(1) * 4),
+                llm.complete_detailed(&request),
+            )
+            .await
+            {
+                Err(_) => {
+                    return Err(agent
+                        .diag(
+                            span,
+                            format!("The model {} ({}) took too long to answer.", nickname, service),
+                        )
+                        .fix("try again in a moment"));
+                }
+                Ok(Err(f)) if f.plain => {
+                    let mut d = agent.diag(span, f.message);
+                    if let Some(fix) = f.fix {
+                        d = d.fix(fix);
+                    }
+                    return Err(d);
+                }
+                Ok(Err(f)) => {
+                    return Err(agent
+                        .diag(span, format!("the language model could not answer: {}", f.message))
+                        .fix("check the [llm.NAME] settings in metagente.toml and that the key variable is set"));
+                }
+                Ok(Ok(reply)) => reply,
+            },
+        };
         match reply {
             LlmReply::Text(text) => return Ok(Value::Text(text)),
             LlmReply::ToolCall(call) => {

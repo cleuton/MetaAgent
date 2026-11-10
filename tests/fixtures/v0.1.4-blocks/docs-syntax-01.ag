@@ -1,0 +1,4 @@
+agent Name
+  goal "What this agent is for"        # required
+  <declarations>
+  <handlers>

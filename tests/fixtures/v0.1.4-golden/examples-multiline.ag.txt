@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+No problems found in multiline.ag (1 agent).
+--- stderr

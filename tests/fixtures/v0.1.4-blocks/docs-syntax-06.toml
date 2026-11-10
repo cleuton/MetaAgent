@@ -1,0 +1,9 @@
+[version]
+minimum = "0.1.4"                # three whole numbers, no leading zeros; a floor, not a range
+
+[auth]
+validator = "python3 validator.py"           # the program that decides; token on standard input, exit 0 = accepted
+protect = ["Planner.plan", "Worker.*"]       # Agent.message, or Agent.* for every message of an agent
+forward = ["Researcher", "kb"]               # remote agents and http(s) tools that receive the caller's token
+cache_seconds = 30                           # 0 to 300 (default 0); only accepted tokens are remembered
+timeout_seconds = 5                          # 1 to 60 (default 5)

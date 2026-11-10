@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+No problems found in broken_permission.ag (1 agent).
+--- stderr

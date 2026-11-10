@@ -1,0 +1,6 @@
+[version]
+minimum = "0.1.4"
+
+[auth]
+validator = "python3 validator.py"
+protect = ["Hello.greet"]

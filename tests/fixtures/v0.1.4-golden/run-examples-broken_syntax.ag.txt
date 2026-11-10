@@ -1,0 +1,7 @@
+exit: 1
+--- stdout
+--- stderr
+Problem on line 3 of broken_syntax.ag: I do not know the word `gaol` here
+  3 |   gaol "Say hello"
+    |   ^
+Fix: did you mean `goal`?

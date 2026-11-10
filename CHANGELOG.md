@@ -4,6 +4,50 @@ All notable changes to Metagente are recorded here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## v0.1.5 - 2026-11-10
+
+Several language models for `think`. Everything that worked in 0.1.4 works the same way. The only new text in the
+language is `using NAME` after a `think` prompt, which was a syntax error before; the only new text in `metagente.toml`
+is a sub-table of `[llm]`.
+
+### Added
+- **`think "..." using fast`**: one optional word at the end of the `think` line says which model answers. Without it
+  the model of `[llm]` answers, exactly as before. `using` stays an ordinary name everywhere else, so a file that uses it
+  as a variable, a message value or a parameter keeps working.
+- **`[llm.NAME]`**: named models, sub-tables of the `[llm]` section (no new section). A named model is `anthropic` or
+  `openai` at its official address (it never reads an address), with `provider`, `model` or `model_env` (the NAME of a
+  variable that holds the model name, read at the first use) and `api_key_env` (the NAME of the variable that holds the
+  key, read on every call). The usual model of Anthropic and the usual key variables apply as for `[llm]`.
+- **Plain mistakes**: an unknown setting, `model` with `model_env`, a key written in the file, `base_url`, a provider that
+  is not `anthropic` or `openai`, a missing provider or model name, a variable name with the wrong shape, a nickname with
+  a wrong shape, a setting of `[llm]` or a word of the language as a nickname, and a `using` with an unknown nickname all
+  stop `check`, `run` and `serve` with the line and the fix. A message prints nothing from the file except a safe name
+  (at most 24 letters, digits, `_` or `-`), so a key pasted where a name belongs is never printed.
+- **Warnings**: a sub-table without `[version]` warns that older programs do not know it (use `[version] minimum =
+  "0.1.5"`); `check` warns about an unset key or model variable of a model that some `using` points to.
+- **`metagente serve`** reads the models at start. A later edit prints one line asking for a restart; an agent edited to
+  use a model that was not read at start keeps the last good version.
+- **`tool env`** never reads the `api_key_env` of any named model, even when the agent declares it.
+- **Failures of a named model** are plain sentences with the nickname and the provider (a status number and the fix for
+  it, or the kind of connection problem), and never repeat text from the service, the library or a proxy.
+- **OpenAI models that reason by default**: some of them refuse a request that has tools with a 400 that says `reasoning_effort`
+  must be `none`. The first request is exactly what 0.1.4 sent; only after that refusal the same request is sent once more
+  with `reasoning_effort: "none"`, and the next calls of that model send it at once. Any other answer, and every other
+  provider, is left alone. This applies to `[llm]` too, because it is the same code, and it was decided by the maintainer
+  after the first live check failed with such a model.
+- `metagente new` writes a commented named-model example. Sample [multi-agent-samples/two-models](multi-agent-samples/two-models/README.md).
+
+### Not changed
+- `[llm]`, its four settings, its providers (including `openai-compatible` and `base_url`), its messages and the requests it
+  sends. `METAGENTE_LLM_PROVIDER` and `METAGENTE_LLM_MODEL` still change `[llm]` only.
+- The only differences in output are the version number wherever it appears (the `User-Agent` header, the Agent Card, the
+  `[version]` line `metagente new` writes, the version gate message).
+
+### Notes
+- A project that uses `[llm.NAME]` should set `[version] minimum = "0.1.5"`: Metagente 0.1.4 ignores the sub-tables with a
+  note and fails on `using`.
+- The eight live checks against the real Anthropic and OpenAI services are made by hand (`specs/007-multiple-llm-models/validation.md`).
+
 ## v0.1.4 - 2026-11-08
 
 Minimum version and authentication of served messages. Everything that worked in 0.1.3 works the same way. No syntax

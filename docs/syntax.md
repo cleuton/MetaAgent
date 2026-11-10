@@ -239,7 +239,7 @@ fail_stmt     = "fail" TEXT NEWLINE ;
 call          = NAME "." ACTION { argument } [ timeout ] ;
 argument      = NAME ":" primary ;
 timeout       = "within" NUMBER "seconds" ;
-think         = "think" expression ;
+think         = "think" expression [ "using" NAME ] ;   (* new in 0.1.5: NAME is a model of [llm.NAME] *)
 
 (* Expressions *)
 expression    = condition ;
@@ -282,7 +282,8 @@ Reading notes:
   remote agent, it is a call; otherwise it is a record field.
 - The words `agent`, `and`, `at`, `contains`, `fail`, `for`, `from`, `goal`, `if`, `in`, `is`,
   `link`, `mcp`, `no`, `not`, `nothing`, `on`, `or`, `otherwise`, `remote`, `reply`, `think`,
-  `tool`, `within`, `yes` have a meaning in the language and should not be used as names.
+  `tool`, `within`, `yes` have a meaning in the language and should not be used as names. New in 0.1.5: `using` has a
+  meaning only right after a `think` prompt; everywhere else it is an ordinary name, but it cannot be the nickname of a model.
 - `tool NAME from mcp` and the built in tools share the `tool` word. `file`, `http`, `state`,
   `clock` and `env` are the built in names.
 - New in 0.1.2: `TEXT` is a one-line `STRING`, a `MULTILINE` text, or a `PARAM`. A `PARAM` stands for the
@@ -599,7 +600,27 @@ reply think "{question}"
 reply think @parameters.prompt1          # new in 0.1.2: the prompt comes from metagente.toml
 reply think """Summarize this in one sentence.
 {report}"""                              # new in 0.1.2: a prompt with many lines
+short = think "Shorten: {report}" using fast    # new in 0.1.5: the model named fast answers (see `using`)
 ```
+
+### `using` *(new in 0.1.5)*
+
+Chooses which model answers a `think`. It is written only at the end of the `think` line, right after the prompt, followed by
+the nickname of a model of `[llm.NAME]` in `metagente.toml` and the end of the line (a `#` comment may follow).
+
+```text
+short = think "Rewrite as a short search query: {question}" using fast
+reply think "Answer this well: {short}" using strong
+```
+
+- The nickname is a plain word written in the file, as in `[llm.fast]`. A quoted text, a parameter, a number, a list, a
+  dotted path or a variable cannot take its place, so no outside value chooses the model.
+- Without `using`, `think` uses the model of `[llm]`, as before.
+- Everywhere else `using` is an ordinary name: `using = "x"` and `reply using` still work. The first value after `think` is
+  always the prompt, so `think using using fast` is the prompt `using` with the model `fast`, and `think using` is the prompt
+  `using` with no model.
+- `metagente check`, `run` and `serve` verify every nickname: `There is no model called fats. The models are: fast, strong.`
+  with the fix `did you mean fast?`.
 
 ### `tool`
 
@@ -701,6 +722,54 @@ timeout_seconds = 5                          # 1 to 60 (default 5)
 - A protected message is never served in the open: plain http on another address and `--mcp stdio` are refused.
 - Both sections are read when `run` or `serve` starts; a later edit while serving prints a line asking for a restart.
 - Everything is explained in [authentication-guide.md](authentication-guide.md).
+
+## Named models
+
+*(new in 0.1.5)* The only change to the language is `using NAME` after a `think` prompt. The models are defined only in
+`metagente.toml`, as sub-tables of the `[llm]` section; there is no new section, and an `.ag` file cannot add or change a model.
+
+```toml
+[version]
+minimum = "0.1.5"
+
+[llm.fast]
+provider = "anthropic"         # required: "anthropic" or "openai"
+model_env = "FAST_MODEL"       # the NAME of a variable that holds the model name (or: model = "...")
+api_key_env = "FAST_KEY"       # the NAME of the variable that holds the key (default: ANTHROPIC_API_KEY or OPENAI_API_KEY)
+```
+
+- `provider` is `anthropic` or `openai`; the address is always the official one and cannot be set. For another address use `[llm]`.
+- `model` or `model_env`, not both. `anthropic` has a usual model (`claude-sonnet-5-5`); `openai` needs one of the two.
+  `model_env` is read the first time that model is used; the key variable is read on every call.
+- The nickname starts with a letter, has at most 24 letters, digits, `_` or `-`, and is not `provider`, `model`,
+  `api_key_env`, `base_url`, a word of the language, or `using`.
+- `[llm]` itself, `METAGENTE_LLM_PROVIDER` and `METAGENTE_LLM_MODEL` did not change; they never touch a named model.
+- Both `[secure] llm` and the secure agents are satisfied by a named model (its address is https), and `tool env` never reads the key variable.
+- The models are read when `run` or `serve` starts; a later edit while serving prints a line asking for a restart.
+
+Errors *(new in 0.1.5)*. Each stops `check`, `run` and `serve` with the line of `metagente.toml` and the fix; a message prints
+nothing from the file except a short plain name:
+
+| Situation | Message |
+|-----------|---------|
+| A `using` with an unknown nickname | `There is no model called fats. The models are: fast, strong.` (or `...No model is defined under [llm].`) |
+| A nickname with a wrong shape | `[llm.1fast] is not a name I can use for a model...` or `[llm] has a name that is too long or has unusual characters (line N).` |
+| A setting of `[llm]` or a word of the language as a nickname | `[llm.model] cannot be a model name, because model is a setting of [llm].` |
+| An unknown setting, or a table inside a sub-table | `[llm.fast] has the setting api_key_evn, which I do not know.` |
+| `key`, `api_key`, `apikey`, `token`, `secret`, `password` | `[llm.fast] has a key written in the file. Keys are never kept here.` |
+| `base_url` or `base_url_env` | `[llm.fast] has base_url. A named model always uses the official address.` |
+| A value that is not text, or is empty | `[llm.fast] setting provider must be text that is not empty.` |
+| No provider | `The provider is missing in [llm.fast].` |
+| A provider that is not `anthropic` or `openai` | `The provider anthropik in [llm.fast] is not one a named model accepts. Use anthropic or openai.` |
+| `model` with `model_env` | `[llm.fast] has both model and model_env.` |
+| `openai` with no model name | `The provider openai needs a model name in [llm.fast].` |
+| A variable name with a wrong shape | `api_key_env in [llm.fast] must be the name of a variable, such as FAST_KEY.` |
+| `using` with no nickname, or a quoted text or a parameter in its place | `After using I need the name of a model, written as in [llm.NAME].` |
+| A variable not set when the model is used | `The model fast needs the variable FAST_KEY, and it is not set.` |
+| A failed call | `The model fast (anthropic) answered with status 429.` with the fix for that status, or `...could not be reached: timeout.` (also `no connection`, `certificate`, `proxy`) |
+
+Warnings *(new in 0.1.5)*: `[llm.fast] is set but [version] is not. Older programs do not know it.`; and, from `check` only,
+`the model fast needs the variable FAST_KEY, and it is not set here.` for a model that some `using` points to.
 
 ## Errors
 
@@ -860,3 +929,11 @@ metagente serve weather.ag --mcp 9000
 - New plain-language errors for all of it; `metagente check` validates it; `metagente new` writes `[version]` and a
   commented `[auth]` example.
 - Everything that worked in 0.1.3 works in 0.1.4 and behaves the same way.
+
+## Changes in 0.1.5
+
+- **One new word:** `using NAME` after a `think` prompt chooses the model. Everywhere else `using` is an ordinary name.
+- **`[llm.NAME]`** sub-tables of `[llm]` define named models (Anthropic or OpenAI at their official addresses, with the model
+  name and the key taken from environment variables). See [Named models](#named-models).
+- New plain-language errors and warnings for all of it; `metagente check` validates it; `metagente new` writes a commented example.
+- Everything that worked in 0.1.4 works in 0.1.5 and behaves the same way.

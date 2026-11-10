@@ -1,0 +1,7 @@
+# 0.1.5: `using fast` and `using strong` choose the model of each think line; the names are in metagente.toml.
+agent Assistant
+  goal "Answer a question in two steps"
+  accepts ask question
+  on ask
+    short = think "Rewrite as a short search query: {question}" using fast
+    reply think "Answer this well: {short}" using strong

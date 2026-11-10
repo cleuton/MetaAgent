@@ -1,0 +1,7 @@
+exit: 1
+--- stdout
+--- stderr
+Problem on line 6 of <tmp>/metagente.toml: [auth] protect lists Hello.greet, but no such message is declared.
+Fix: Hello accepts: hi
+
+Found 1 problem.

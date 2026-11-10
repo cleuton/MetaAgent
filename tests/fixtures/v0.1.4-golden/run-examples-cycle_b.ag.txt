@@ -1,0 +1,11 @@
+exit: 1
+--- stdout
+--- stderr
+Problem on line 6 of cycle_b.ag: CycleA could not answer `go`
+  6 |     reply CycleA.go
+    |           ^
+  CycleA could not answer:
+    Problem on line 7 of cycle_a.ag: CycleB asked CycleA, and CycleA asked CycleB again (CycleB -> CycleA -> CycleB)
+      7 |     reply CycleB.go
+        |           ^
+    Fix: make one of them answer without calling the other

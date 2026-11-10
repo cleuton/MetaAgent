@@ -1,0 +1,2 @@
+[version]
+minimum = "0.1.4"      # three whole numbers, no leading zeros; the project runs on that version and any newer one

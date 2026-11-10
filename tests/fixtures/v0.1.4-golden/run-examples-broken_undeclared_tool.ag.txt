@@ -1,0 +1,7 @@
+exit: 1
+--- stdout
+--- stderr
+Problem on line 6 of broken_undeclared_tool.ag: agent Forgetful uses `file` but never declared it
+  6 |     text = file.read path: "notes.txt"
+    |            ^
+Fix: add the line `tool file` under `agent Forgetful`

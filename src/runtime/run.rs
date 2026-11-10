@@ -95,7 +95,9 @@ pub fn build_runtime(start: &Path) -> MgResult<Arc<Runtime>> {
     // 0.1.3: the model provider and the agents share one set of network clients
     let net = Arc::new(super::net::ClientSet::for_config(&config));
     let llm = crate::llm::providers::from_config_with(&config, net.clone())?;
-    Ok(Runtime::with_net(config, llm, net))
+    // 0.1.5: one model per nickname of [llm.NAME]; nothing is built for a project without sub-tables
+    let models = crate::llm::providers::named_from_config(&config, net.clone());
+    Ok(Runtime::with_models(config, llm, models, net))
 }
 
 pub async fn run_file(opts: &RunOptions, rt: Arc<Runtime>) -> MgResult<Value> {
@@ -111,6 +113,11 @@ pub async fn run_file(opts: &RunOptions, rt: Arc<Runtime>) -> MgResult<Value> {
     problems.extend(crate::runtime::secure::check_agents(
         &agents,
         &rt.net.secure(),
+    ));
+    // 0.1.5: every `using NAME` must name a model of [llm.NAME]
+    problems.extend(crate::runtime::models::check_uses(
+        &agents,
+        &rt.config.models,
     ));
     if !problems.is_empty() {
         let extra = problems.len() - 1;

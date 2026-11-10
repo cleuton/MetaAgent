@@ -833,6 +833,12 @@ impl ClientSet {
             + usize::from(inner.model.get().is_some())
     }
 
+    /// 0.1.5: only the KIND of a failed request (no address, no library text), for a model that writes its own
+    /// sentences. `classify` and every message it gives are not touched.
+    pub fn failure_kind(&self, error: &reqwest::Error, url: &str) -> FailureKind {
+        kind_of(&self.snapshot(), error, url)
+    }
+
     /// The proxy in use (from metagente.toml or the environment).
     pub fn proxy(&self) -> Result<Arc<EffectiveProxy>, NetError> {
         self.snapshot().proxy()
@@ -1102,6 +1108,55 @@ fn classify(
         })
         .fix(fix),
     )
+}
+
+/// 0.1.5: what a failed request to a model turned out to be. Carries no text, so a message built from it cannot hold an
+/// address, a model name, a masked key or a proxy address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureKind {
+    Timeout,
+    NoConnection,
+    Certificate,
+    Proxy,
+}
+
+/// 0.1.5: the same error chain and the same conditions `classify` looks at, giving only the kind.
+fn kind_of(inner: &Inner, error: &reqwest::Error, url: &str) -> FailureKind {
+    let chain = error_chain(error);
+    for e in &chain {
+        if let Some(rustls::Error::InvalidCertificate(_)) = e.downcast_ref::<rustls::Error>() {
+            return FailureKind::Certificate;
+        }
+    }
+    let through_proxy = inner
+        .proxy()
+        .ok()
+        .and_then(|p| {
+            Url::parse(url)
+                .ok()
+                .and_then(|u| p.for_destination(&u).cloned())
+        })
+        .is_some();
+    if through_proxy {
+        let text = chain
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        if text.contains("proxy authorization required")
+            || text.contains("tunnel error: unsuccessful")
+            || text.contains("failed to create underlying connection")
+            || text.contains("proxy connect")
+            || (error.is_timeout() && error.is_connect())
+        {
+            return FailureKind::Proxy;
+        }
+    }
+    if error.is_timeout() {
+        FailureKind::Timeout
+    } else {
+        FailureKind::NoConnection
+    }
 }
 
 fn error_chain(error: &reqwest::Error) -> Vec<&(dyn StdError + 'static)> {

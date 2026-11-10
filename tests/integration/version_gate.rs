@@ -35,10 +35,12 @@ fn a_higher_minimum_stops_run_check_and_serve_with_the_same_message() {
     for (ok, out, err) in all_three(dir.path()) {
         assert!(!ok);
         assert!(!out.contains("hello"));
+        // 0.1.5: the version of the program is not a constant of this test (F14: the tests of the version text change in every release)
         assert!(
-            err.contains(
-                "This project needs Metagente 99.0.0 or newer, and this is 0.1.4. Nothing was run."
-            ),
+            err.contains(&format!(
+                "This project needs Metagente 99.0.0 or newer, and this is {}. Nothing was run.",
+                env!("CARGO_PKG_VERSION")
+            )),
             "{}",
             err
         );
@@ -194,7 +196,15 @@ fn metagente_new_writes_version_and_a_commented_auth_example() {
     let (ok, _, err) = run(dir.path(), &["new", "hello"]);
     assert!(ok, "{}", err);
     let toml = std::fs::read_to_string(dir.path().join("metagente.toml")).unwrap();
-    assert!(toml.contains("[version]\nminimum = \"0.1.4\""), "{}", toml);
+    // 0.1.5: `metagente new` writes the version of the program that runs it (F14, F16)
+    assert!(
+        toml.contains(&format!(
+            "[version]\nminimum = \"{}\"",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "{}",
+        toml
+    );
     assert!(toml.contains("# [auth]"));
     assert!(
         !toml.lines().any(|l| l.trim() == "[auth]"),

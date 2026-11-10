@@ -1,0 +1,12 @@
+[network]
+allow_self_signed = false        # true: no certificate checks for agents, tools, the http tool and the proxy (development only)
+self_signed_hosts = ["127.0.0.1"] # optional: limit allow_self_signed to these hosts
+llm_allow_self_signed = false    # true: no certificate checks for the language model ONLY (a private gateway you trust)
+ca_file = "certs/dev-ca.pem"     # trust one more authority, for every connection, and keep checking
+
+[network.proxy]
+url = "http://proxy.company.com:3128"   # no user name or password inside the address
+username_env = "PROXY_USER"             # the NAME of the variable that holds the user name
+password_env = "PROXY_PASSWORD"         # the NAME of the variable that holds the password
+no_proxy = ["localhost", "127.0.0.1", ".internal.company.com"]
+pass_to_tools = false                   # true: give these settings to tool programs started over stdio

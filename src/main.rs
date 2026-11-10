@@ -99,6 +99,7 @@ async fn main() -> ExitCode {
             }
             print_network_warnings(&rt.config.network); // 0.1.3
             print_auth_warnings(&rt.config.auth_warnings); // 0.1.4
+            print_auth_warnings(&rt.config.model_warnings); // 0.1.5: [llm.NAME] without [version]
             let opts = RunOptions {
                 file,
                 message,
@@ -128,6 +129,16 @@ async fn main() -> ExitCode {
                         return ExitCode::from(1);
                     }
                 };
+            // 0.1.5: [llm.NAME] is read like run and serve read it, so the same mistakes stop `check`
+            let models_check = match metagente::runtime::config::Config::models_for_check(
+                &project_dir_of(&file),
+            ) {
+                Ok(m) => m,
+                Err(d) => {
+                    eprint!("{}", d.render());
+                    return ExitCode::from(1);
+                }
+            };
             match metagente::runtime::run::load_agents_with(
                 &file,
                 // 0.1.2: the parameters of the project; a broken metagente.toml was ignored by `check` before, and still is
@@ -162,6 +173,20 @@ async fn main() -> ExitCode {
                     }
                     let mut problems = metagente::lang::check::check_all(&agents);
                     problems.extend(network_problems);
+                    // 0.1.5: every `using NAME` must name a model of [llm.NAME]; the models a project uses but whose
+                    // variables are not set here are only a warning (check may run where the keys are not)
+                    print_auth_warnings(&models_check.warnings);
+                    problems.extend(metagente::runtime::models::check_uses(
+                        &agents,
+                        &models_check.models,
+                    ));
+                    let used =
+                        metagente::runtime::models::used_models(&agents, &models_check.models);
+                    print_auth_warnings(&metagente::runtime::models::unset_warnings(
+                        &used,
+                        &models_check.models,
+                        &|n| std::env::var(n).ok(),
+                    ));
                     // 0.1.4: [auth] against the agents of the project, and the warnings and notes of [version] and [auth]
                     print_auth_warnings(&auth_check.warnings);
                     if let Some(policy) = &auth_check.policy {
@@ -276,6 +301,7 @@ async fn main() -> ExitCode {
             }
             print_network_warnings(&rt.config.network); // 0.1.3
             print_auth_warnings(&rt.config.auth_warnings); // 0.1.4
+            print_auth_warnings(&rt.config.model_warnings); // 0.1.5: [llm.NAME] without [version]
             match serve(
                 ServeOptions {
                     file,

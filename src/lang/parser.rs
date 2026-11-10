@@ -7,8 +7,9 @@ use crate::diagnostics::Diagnostic;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-const AGENT_WORDS: &[&str] = &["goal", "tool", "link", "remote", "accepts", "on"];
-const BUILTIN_TOOLS: &[&str] = &["file", "http", "env", "state", "clock"];
+// 0.1.5: pub, so a test can prove that every word the parser treats specially is in RESERVED_WORDS
+pub const AGENT_WORDS: &[&str] = &["goal", "tool", "link", "remote", "accepts", "on"];
+pub const BUILTIN_TOOLS: &[&str] = &["file", "http", "env", "state", "clock"];
 
 /// Parses a whole `.ag` file into its agents.
 pub fn parse_file(
@@ -760,8 +761,45 @@ impl Parser {
                     "think" if allow_call => {
                         c.i += 1;
                         let prompt = self.primary(c, false)?;
+                        // 0.1.5: `using NAME` right after the prompt chooses the model. The first value after `think`
+                        // is always the prompt, so `think using using fast` is the prompt `using` and the model `fast`.
+                        let mut model = None;
+                        if c.peek_word("using") {
+                            c.i += 1;
+                            let wrong = |p: &Parser, c: &Cursor| {
+                                p.missing(
+                                    c,
+                                    "After using I need the name of a model, written as in [llm.NAME].",
+                                    "write it like: think \"...\" using fast",
+                                )
+                            };
+                            match c.tokens.get(c.i) {
+                                Some(Token {
+                                    tok: Tok::Word(name),
+                                    col,
+                                }) => {
+                                    let (name, col) = (name.clone(), *col);
+                                    c.i += 1;
+                                    // `fast.x` is a path, not a single word
+                                    if matches!(
+                                        c.tokens.get(c.i),
+                                        Some(Token {
+                                            tok: Tok::Sym('.'),
+                                            ..
+                                        })
+                                    ) {
+                                        return Err(wrong(self, c));
+                                    }
+                                    // nothing else may follow the nickname on the line
+                                    self.finish(c)?;
+                                    model = Some((name, Span { line: c.line, col }));
+                                }
+                                _ => return Err(wrong(self, c)),
+                            }
+                        }
                         return Ok(Expr::Think {
                             prompt: Box::new(prompt),
+                            model,
                             span,
                         });
                     }

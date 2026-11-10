@@ -1,0 +1,2 @@
+agent Weather
+  goal "Answer questions about the weather"

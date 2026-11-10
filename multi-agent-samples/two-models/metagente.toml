@@ -1,0 +1,14 @@
+# 0.1.5: two named models under [llm]: a small Anthropic model shortens the question, an OpenAI model answers.
+# The model names and the keys are NOT written here: this file names the variables that hold them.
+[version]
+minimum = "0.1.5"
+
+[llm.fast]
+provider = "anthropic"
+model_env = "FAST_MODEL"
+api_key_env = "FAST_KEY"
+
+[llm.strong]
+provider = "openai"
+model_env = "STRONG_MODEL"
+api_key_env = "STRONG_KEY"

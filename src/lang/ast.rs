@@ -170,6 +170,8 @@ pub enum Expr {
     Call(CallExpr),
     Think {
         prompt: Box<Expr>,
+        /// 0.1.5: `using NAME`: the nickname of the model that answers, as written, with its place
+        model: Option<(String, Span)>,
         span: Span,
     },
     Not(Box<Expr>, Span),

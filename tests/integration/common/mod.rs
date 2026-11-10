@@ -6,6 +6,7 @@ pub mod a2a_tls; // 0.1.3: the same server over TLS
 pub mod auth; // 0.1.4: validators, `metagente serve` children and hand written calls for [auth]
 pub mod fake_a2a; // 0.1.4: a fake A2A agent that records the Authorization header
 pub mod fake_mcp;
+pub mod official; // 0.1.5: fake Anthropic and OpenAI for their official host names, through [network] only
 pub mod proxy; // 0.1.3: test proxy
 pub mod python; // 0.1.3: the Python side of the interop tests
 pub mod self_signed; // 0.1.3: certificate files and `metagente serve` as a child process
@@ -80,4 +81,30 @@ pub async fn run_source(
 ) -> Result<Value, Diagnostic> {
     let agent = agent_from(rt, source, None);
     ask(&agent, message, params).await
+}
+
+/// 0.1.5: a runtime whose `[llm.NAME]` models are the ones in `toml` (read the way `run` reads them), each answered by
+/// the scripted model given for its nickname; `default` answers a `think` without `using`.
+pub fn runtime_with_models(
+    root: &Path,
+    toml: &str,
+    default: Option<Arc<dyn Llm>>,
+    named: Vec<(&str, Arc<dyn Llm>)>,
+) -> Arc<Runtime> {
+    let table: toml::Table = toml.parse().expect("metagente.toml");
+    let llm = table
+        .get("llm")
+        .and_then(|v| v.as_table())
+        .cloned()
+        .unwrap_or_default();
+    let mut config = Config {
+        root: root.to_path_buf(),
+        ..Config::default()
+    };
+    config.models =
+        metagente::runtime::models::read_models(&llm, toml, Path::new("metagente.toml"))
+            .unwrap_or_else(|d| panic!("{}", d.render()));
+    let net = Arc::new(metagente::runtime::net::ClientSet::for_config(&config));
+    let models = named.into_iter().map(|(n, m)| (n.to_string(), m)).collect();
+    Runtime::with_models(config, default, models, net)
 }

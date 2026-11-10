@@ -1,0 +1,4 @@
+[secure]
+agents = ["Bob", "Researcher"]   # agent names, exactly as in the .ag files (case sensitive)
+tools  = ["weather", "http"]     # tool names; "http" makes the built in http tool https only
+llm    = false                   # true: the language model address must be https

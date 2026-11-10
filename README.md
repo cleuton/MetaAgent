@@ -87,7 +87,136 @@ non-programmers a way to build agents, Metagente is for you.
 - **External parameters** (new in 0.1.2): addresses and prompts live in `metagente.toml` and agents read them as `@parameters.name`.
 - **Secure connections** (new in 0.1.3): `https://` addresses everywhere, `[secure]` to require https by name, `metagente serve` answering over https (`--tls-cert`, `--tls-key`), self-signed certificates only when `metagente.toml` says so, and authenticated proxies.
 - **Python interoperability** (new in 0.1.3): tested against the official A2A Python SDK, in both directions.
+- **Several language models** (new in 0.1.5): `think "..." using fast` chooses which model answers; the models are `[llm.NAME]` sub-tables of `[llm]` in `metagente.toml`, Anthropic or OpenAI at their official addresses, with the model name and the key taken from environment variables.
 - **Minimum version and bearer tokens** (new in 0.1.4): `[version]` makes an older Metagente refuse a project; `[auth]` protects messages with a token that a program of yours validates, and passes the token on to the agents and tools you list.
+
+### New in 0.1.5: several language models for `think`
+
+**One optional word on the `think` line, and no new section.** `think "..." using fast` sends that call to the model named
+`fast`; a `think` without `using` still uses the model of `[llm]`, exactly as before. The models are sub-tables of the
+`[llm]` section you already know: `[llm.fast]`, `[llm.strong]`. Only the agent line and `metagente.toml` change. A
+complete, runnable example is [multi-agent-samples/two-models](multi-agent-samples/two-models/README.md).
+
+```text
+agent Assistant
+  goal "Answer a question in two steps"
+  accepts ask question
+  on ask
+    short = think "Rewrite as a short search query: {question}" using fast
+    reply think "Answer this well: {short}" using strong
+```
+
+#### `[llm.NAME]`: the settings
+
+| Setting | Required | What it is | If you leave it out |
+|---------|----------|------------|---------------------|
+| `provider` | yes | `anthropic` or `openai` | an error |
+| `model` | `openai`: this or `model_env` | the model name | `anthropic`: `claude-sonnet-5-5` |
+| `model_env` | see `model` | the **name of a variable** that holds the model name, read the first time that model is used | the file's `model` |
+| `api_key_env` | no | the **name of the variable** that holds the key, read on every call | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` |
+
+* The name `NAME` (the nickname) starts with a letter and has at most 24 letters, digits, `_` or `-`. It cannot be `provider`,
+  `model`, `api_key_env` or `base_url`, nor a word of the language (`reply`, `think`, `using`...).
+* A named model always goes to the official address of its company. There is no `base_url`: for another address (a gateway,
+  an OpenAI-compatible service) keep using the `[llm]` section, which did not change.
+* `using` is only a word right after a `think` prompt, followed by the nickname and the end of the line. Everywhere else it is
+  an ordinary name, so a file that has a variable called `using` keeps working.
+* The nickname is written in the file. It cannot come from a parameter, a message or a variable.
+
+#### Copy and paste: Anthropic only
+
+```toml
+[version]
+minimum = "0.1.5"
+
+[llm.claude]
+provider = "anthropic"
+model_env = "CLAUDE_MODEL"        # the NAME of a variable; you set it in your terminal
+api_key_env = "ANTHROPIC_API_KEY"
+```
+
+```text
+reply think "Say hello in one sentence" using claude
+```
+
+#### Copy and paste: OpenAI only
+
+```toml
+[version]
+minimum = "0.1.5"
+
+[llm.gpt]
+provider = "openai"
+model_env = "GPT_MODEL"
+api_key_env = "OPENAI_API_KEY"
+```
+
+```text
+reply think "Say hello in one sentence" using gpt
+```
+
+#### Copy and paste: both, in one agent
+
+```toml
+[version]
+minimum = "0.1.5"
+
+[llm.fast]
+provider = "anthropic"
+model_env = "FAST_MODEL"
+api_key_env = "FAST_KEY"
+
+[llm.strong]
+provider = "openai"
+model_env = "STRONG_MODEL"
+api_key_env = "STRONG_KEY"
+```
+
+Keep a default model too, by writing it in `[llm]` as before; then `think` without `using` uses it:
+
+```toml
+[llm]
+provider = "anthropic"
+model = "claude-sonnet-5-5"
+
+[llm.gpt]
+provider = "openai"
+model_env = "OPENAI_MODEL"
+```
+
+#### Why the keys live only in environment variables
+
+A key written in a file ends up in a repository, a backup or a screenshot. In `metagente.toml` you write only the
+**name** of the variable, and the key stays in your shell. A setting called `key`, `api_key`, `token`, `secret` or
+`password` in a sub-table is refused. Metagente never prints a key, never lets an agent read the variable
+(`tool env` refuses it even when the agent declares it) and sends it only to the official address of its own company. A
+message about a sub-table prints nothing from the file except a short plain name, so a key pasted where a name belongs
+is refused without being shown.
+
+#### Use `[version]`
+
+Metagente 0.1.4 and older do not know `[llm.NAME]` (they ignore it with a note) and stop on `using`. Put
+`[version] minimum = "0.1.5"` in the project; Metagente 0.1.5 warns when a sub-table is set without it.
+
+#### What you see when something is wrong
+
+Every message has the line and the fix. The main ones:
+
+| Situation | Message |
+|-----------|---------|
+| A model name that does not exist | `There is no model called fats. The models are: fast, strong.` and `did you mean fast?` |
+| A misspelled setting | `[llm.fast] has the setting api_key_evn, which I do not know.` and `did you mean api_key_env?` |
+| `model` and `model_env` together | `[llm.fast] has both model and model_env.` |
+| A key written in the file | `[llm.fast] has a key written in the file. Keys are never kept here.` |
+| An address in a named model | `[llm.fast] has base_url. A named model always uses the official address.` |
+| A provider other than the two | `The provider anthropik in [llm.fast] is not one a named model accepts. Use anthropic or openai.` |
+| No provider, or `openai` with no model name | `The provider is missing in [llm.fast].` / `The provider openai needs a model name in [llm.fast].` |
+| A variable that is not set | `The model fast needs the variable FAST_KEY, and it is not set.` |
+| A call fails | `The model fast (anthropic) answered with status 429.` or `...could not be reached: timeout.` (never the text of the service, a model name or an address) |
+| `[llm.fast]` without `[version]` | `Warning: [llm.fast] is set but [version] is not. Older programs do not know it.` |
+
+`metagente check` also warns when the key or model variable of a model that is used is not set where you run it. While
+`metagente serve` runs, an edit of the models is not applied: one line asks for a restart.
 
 ### New in 0.1.4: a minimum version, and tokens for served messages
 
@@ -388,6 +517,7 @@ agent over A2A, and the Researcher reads a web page through an MCP tool. Both us
 | Samples | [samples/](samples/) |
 | Secure connections end to end (new in 0.1.3) | [multi-agent-samples/https-chain](multi-agent-samples/https-chain/README.md) |
 | Secure connections guide for beginners: what a certificate is, make a self-signed one, run the whole chain over https (new in 0.1.3) | [docs/secure-connections-guide.md](docs/secure-connections-guide.md) |
+| Two models in one agent: a fast Anthropic model and an OpenAI model, break it on purpose (new in 0.1.5) | [multi-agent-samples/two-models](multi-agent-samples/two-models/README.md) |
 | Bearer tokens end to end: three agents, one token, break it on purpose (new in 0.1.4) | [multi-agent-samples/auth-chain](multi-agent-samples/auth-chain/README.md) |
 | Authentication guide: what Metagente does and does not do, the validator, the cache, the checklist (new in 0.1.4) | [docs/authentication-guide.md](docs/authentication-guide.md) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
@@ -402,6 +532,7 @@ agent over A2A, and the Researcher reads a web page through an MCP tool. Both us
 | Multi-line text and external parameters (v0.1.2) | Built |
 | Secure connections: https on both ends, `[secure]`, proxy, Python interoperability (v0.1.3) | Built |
 | Minimum version and bearer tokens for served messages (v0.1.4) | Built |
+| Several language models for `think`: `using NAME`, `[llm.NAME]` (v0.1.5) | Built, live checks pending |
 | v1.0: MCP server, A2A Agent Card, A2A tasks, `serve` | Built, release pending |
 | **Project Barracuda:** an agent server invoked via A2A or a frontend, with a queue for batch triggering | Next |
 | Long running tasks, tokens for unattended callers, agent registry, scheduling, A2A streaming | Ideas |
@@ -425,6 +556,8 @@ Every feature starts as a spec, so you can read why things are the way they are:
 | v0.1.3 plan, tasks, research and contracts | `specs/005-secure-by-declaration/` |
 | v0.1.4 feature spec (minimum version and authentication of served messages) | `specs/006-version-and-served-auth/spec.md` |
 | v0.1.4 plan, tasks, research and contracts | `specs/006-version-and-served-auth/` |
+| v0.1.5 feature spec (several language models for `think`) | `specs/007-multiple-llm-models/spec.md` |
+| v0.1.5 plan, tasks, research, contracts and the live checks | `specs/007-multiple-llm-models/` |
 
 ## Contributing
 
@@ -435,4 +568,4 @@ If Metagente is useful to you, a star on the repository helps other people find 
 
 ## Version
 
-**v0.1.4.** Semantic versioning. The version is kept in this file, in `CHANGELOG.md` and in `Cargo.toml`.
+**v0.1.5.** Semantic versioning. The version is kept in this file, in `CHANGELOG.md` and in `Cargo.toml`.

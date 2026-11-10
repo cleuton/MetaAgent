@@ -1,0 +1,5 @@
+agent Helper
+  goal "Answer questions"
+  accepts ask question
+  on ask
+    reply think "{question}"

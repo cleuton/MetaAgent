@@ -1,0 +1,3 @@
+[serve]
+tls_cert = "certs/dev-cert.pem"   # PEM certificate (relative paths start at the folder of metagente.toml)
+tls_key  = "certs/dev-key.pem"    # PEM private key

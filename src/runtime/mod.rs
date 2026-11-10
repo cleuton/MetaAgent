@@ -4,6 +4,7 @@ pub mod auth; // 0.1.4: bearer tokens for served messages, passing them on
 pub mod auth_check; // 0.1.4: [auth] against the agents of the project
 pub mod config;
 pub mod interpreter;
+pub mod models; // 0.1.5: named language models, [llm.NAME]
 pub mod net; // 0.1.3: certificates, proxies and plain-language network failures
 pub mod permissions;
 pub mod run;
@@ -27,6 +28,8 @@ use std::sync::{Arc, Mutex};
 pub struct Runtime {
     pub config: Config,
     pub llm: Option<Arc<dyn Llm>>,
+    /// 0.1.5: one model per nickname of `[llm.NAME]`, built at start (empty without sub-tables)
+    pub models: HashMap<String, Arc<dyn Llm>>,
     pub net: Arc<net::ClientSet>, // 0.1.3: one place for certificates, proxies and clients
     pub mcp: crate::mcp::McpPool,
     pub linker: crate::link::Linker,
@@ -45,12 +48,23 @@ impl Runtime {
         llm: Option<Arc<dyn Llm>>,
         net: Arc<net::ClientSet>,
     ) -> Arc<Runtime> {
+        Self::with_models(config, llm, HashMap::new(), net) // 0.1.5: no named model
+    }
+
+    /// 0.1.5: like `with_net`, with the named models of `[llm.NAME]`.
+    pub fn with_models(
+        config: Config,
+        llm: Option<Arc<dyn Llm>>,
+        models: HashMap<String, Arc<dyn Llm>>,
+        net: Arc<net::ClientSet>,
+    ) -> Arc<Runtime> {
         // 0.1.2: agents loaded with `link` read the parameters of the agent that loaded them
         let linker: crate::link::Linker = Default::default();
         linker.set_parameters(config.parameters.clone());
         Arc::new(Runtime {
             config,
             llm,
+            models,
             net,
             mcp: Default::default(),
             linker,
@@ -75,6 +89,8 @@ impl Runtime {
         for name in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"] {
             hidden.push(name.to_string());
         }
+        // 0.1.5: the key variable of every named model is as private as the key of [llm]
+        hidden.extend(self.config.models.written_key_envs());
         // 0.1.3: the proxy login is as private as the model key
         for name in [
             &self.config.network.proxy.username_env,

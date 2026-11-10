@@ -1,0 +1,12 @@
+[secure]
+agents = ["Planner", "Researcher", "Facts"]
+tools = ["kb"]
+
+[serve]
+tls_cert = "certs/dev-cert.pem"
+tls_key = "certs/dev-key.pem"
+
+[network]
+ca_file = "certs/dev-cert.pem"        # preferred: trust this one certificate and keep checking it
+# allow_self_signed = true            # the other way, for development only
+# self_signed_hosts = ["127.0.0.1"]   # ... and only for these hosts

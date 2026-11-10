@@ -15,6 +15,8 @@ pub struct Served {
     listener: Mutex<Option<ListenerWatch>>,
     // 0.1.4: [version] and [auth] as they were at start; a later edit is not applied and is mentioned once (D16)
     auth_watch: Mutex<AuthWatch>,
+    // 0.1.5: the named models, [llm.NAME], as they were at start; a later edit is not applied and is mentioned once (D8)
+    models_watch: Mutex<AuthWatch>,
 }
 
 struct AuthWatch {
@@ -32,6 +34,29 @@ fn auth_signature(root: &std::path::Path) -> String {
                 .ok()
                 .and_then(|t| t.parse::<toml::Table>().ok())
                 .map(|t| format!("{:?}|{:?}", t.get("version"), t.get("auth")))
+                .unwrap_or_default();
+        }
+        dir = d.parent();
+    }
+    String::new()
+}
+
+/// 0.1.5: the raw text of the sub-tables of `[llm]` (`[llm.NAME]`) in the project's metagente.toml. The scalars of `[llm]`
+/// are not part of it: `[llm]` has no restart line, and does not get one in this release.
+fn models_signature(root: &std::path::Path) -> String {
+    let mut dir = Some(root);
+    while let Some(d) = dir {
+        let candidate = d.join("metagente.toml");
+        if candidate.is_file() {
+            return std::fs::read_to_string(&candidate)
+                .ok()
+                .and_then(|t| t.parse::<toml::Table>().ok())
+                .and_then(|t| t.get("llm").and_then(|v| v.as_table()).cloned())
+                .map(|llm| {
+                    let tables: std::collections::BTreeMap<_, _> =
+                        llm.iter().filter(|(_, v)| v.is_table()).collect();
+                    format!("{:?}", tables)
+                })
                 .unwrap_or_default();
         }
         dir = d.parent();
@@ -63,6 +88,7 @@ impl Served {
     ) -> Served {
         rt.linker.register(&agents);
         let auth_start = auth_signature(&rt.config.root); // 0.1.4
+        let models_start = models_signature(&rt.config.root); // 0.1.5
         Served {
             rt,
             file,
@@ -71,6 +97,10 @@ impl Served {
             listener: Mutex::new(None),
             auth_watch: Mutex::new(AuthWatch {
                 start: auth_start,
+                told: None,
+            }),
+            models_watch: Mutex::new(AuthWatch {
+                start: models_start,
                 told: None,
             }),
         }
@@ -135,9 +165,27 @@ impl Served {
         }
     }
 
+    /// 0.1.5: `[llm.NAME]` is read at start only (D8). A later edit changes nothing; one plain line says a restart is
+    /// needed, once per new state.
+    fn mention_models_change(&self) {
+        let now = models_signature(&self.rt.config.root);
+        let Ok(mut watch) = self.models_watch.lock() else {
+            return;
+        };
+        if now == watch.start {
+            watch.told = None;
+        } else if watch.told.as_ref() != Some(&now) {
+            eprintln!(
+                "Note: metagente.toml changed the models under [llm]. I keep serving as I started; restart `metagente serve` for the change to apply."
+            );
+            watch.told = Some(now);
+        }
+    }
+
     /// The current agents. If the file was edited into something broken, the last good version stays.
     pub fn agents(&self) -> Vec<Arc<AgentDef>> {
         self.mention_auth_change(); // 0.1.4
+        self.mention_models_change(); // 0.1.5
         // 0.1.2: a parameter edited in metagente.toml applies to the next request
         // 0.1.3: and so does a changed [network] or [secure] section; requests already running keep the settings they started with
         if let Ok(fresh) = super::config::Config::load_with_env(&self.rt.config.root, &|_| None) {
@@ -149,7 +197,12 @@ impl Served {
             }
         }
         match self.rt.linker.load(&self.file) {
-            Ok(agents) if crate::lang::check::check_all(&agents).is_empty() => {
+            // 0.1.5: an edit that names a model not read at start is a broken edit: the last good version stays (D8)
+            Ok(agents)
+                if crate::lang::check::check_all(&agents).is_empty()
+                    && crate::runtime::models::check_uses(&agents, &self.rt.config.models)
+                        .is_empty() =>
+            {
                 if let Ok(mut last) = self.last_good.lock() {
                     *last = agents.clone();
                 }
@@ -223,6 +276,11 @@ pub async fn serve(opts: ServeOptions, rt: Arc<Runtime>) -> MgResult<()> {
         &rt.linker,
         &rt.config.root,
         &agents,
+    ));
+    // 0.1.5: every `using NAME` must name a model of [llm.NAME]
+    problems.extend(crate::runtime::models::check_uses(
+        &agents,
+        &rt.config.models,
     ));
     if !problems.is_empty() {
         let extra = problems.len() - 1;

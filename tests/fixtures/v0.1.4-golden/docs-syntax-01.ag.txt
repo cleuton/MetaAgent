@@ -1,0 +1,7 @@
+exit: 1
+--- stdout
+--- stderr
+Problem on line 3 of block.ag: I do not understand the character `<`
+  3 |   <declarations>
+    |   ^
+Fix: remove it, or put it inside quotes if it is part of a text

@@ -11,6 +11,12 @@ const CONFIG: &str = r#"# Settings for Metagente. Agents never mention these, so
 # model = "claude-sonnet-5-5"          # the model name your provider gives you
 # api_key_env = "ANTHROPIC_API_KEY"    # the NAME of the variable that holds your key
 
+# 0.1.5: more than one model. Name each one here and choose it on a `think` line: think "..." using fast
+# [llm.fast]
+# provider = "anthropic"               # or "openai"
+# model_env = "FAST_MODEL"             # the NAME of a variable that holds the model name (or: model = "...")
+# api_key_env = "FAST_KEY"             # the NAME of the variable that holds the key
+
 [runtime]
 timeout_seconds = 30      # how long a tool call may take
 think_max_steps = 10      # how many steps `think` may take

@@ -1,0 +1,9 @@
+[version]
+minimum = "0.1.4"        # always set this when you use [auth] (see section 11)
+
+[auth]
+validator = "python3 validator.py"      # your program
+protect = ["Planner.plan", "Researcher.*"]   # Agent.message, or Agent.* for every message of an agent
+forward = ["Researcher", "kb"]          # who receives the caller's token (section 8)
+cache_seconds = 30                      # 0 to 300, default 0
+timeout_seconds = 5                     # 1 to 60, default 5

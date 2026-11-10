@@ -184,9 +184,15 @@ impl Agent {
                 }
                 Expr::Path(path, span) => self.eval_path(path, *span, env, ctx).await,
                 Expr::Call(call) => self.eval_call(call, env, ctx).await,
-                Expr::Think { prompt, span } => {
+                Expr::Think {
+                    prompt,
+                    model,
+                    span,
+                } => {
                     let text = self.eval(prompt, env, ctx).await?.to_display();
-                    super::think::think(self, text, ctx, *span).await
+                    // 0.1.5: `using NAME` chooses the model; without it the model of [llm] answers, as before
+                    let nickname = model.as_ref().map(|(n, _)| n.as_str());
+                    super::think::think(self, text, nickname, ctx, *span).await
                 }
                 Expr::Not(inner, _) => {
                     Ok(Value::Bool(!self.eval(inner, env, ctx).await?.is_truthy()))

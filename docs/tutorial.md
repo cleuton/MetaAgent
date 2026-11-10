@@ -149,6 +149,41 @@ The model and your key are settings, never part of the agent. Open `metagente.to
 key. The agent file does not change when you switch providers. When the model needs a tool, it can
 use only the tools the agent declared.
 
+### Choose the model (new in 0.1.5)
+
+One agent can use more than one model. Name each model in `metagente.toml`, under the `[llm]` section you just met, and
+choose one at the end of the `think` line. A cheap model can rewrite the question and a stronger one can answer:
+
+```toml
+[version]
+minimum = "0.1.5"
+
+[llm.fast]
+provider = "anthropic"          # or "openai"
+model_env = "FAST_MODEL"        # the NAME of a variable that holds the model name
+api_key_env = "FAST_KEY"        # the NAME of the variable that holds the key
+
+[llm.strong]
+provider = "openai"
+model_env = "STRONG_MODEL"
+api_key_env = "STRONG_KEY"
+```
+
+```text
+agent Assistant
+  goal "Answer a question in two steps"
+  accepts ask question
+  on ask
+    short = think "Rewrite as a short search query: {question}" using fast
+    reply think "Answer this well: {short}" using strong
+```
+
+Set the four variables in your terminal (the keys are never written in a file) and run it. A `think` without `using`
+still uses the model of `[llm]`. A name that does not exist stops with a plain message that lists the ones that do, and
+a model is always the real Anthropic or OpenAI service: for another address keep using `[llm]`. A complete example, and
+how to break it on purpose: [multi-agent-samples/two-models](../multi-agent-samples/two-models/README.md). The settings
+and every message: [syntax.md](syntax.md#named-models).
+
 ## 8. Agents that call agents
 
 Put `weather.ag` and `planner.ag` in the same folder. In the planner:

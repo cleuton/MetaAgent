@@ -1,0 +1,6 @@
+[auth]
+validator = "python3 validator.py"           # your program: the token on standard input, exit code 0 = accepted
+protect = ["Planner.plan", "Worker.*"]       # Agent.message, or Agent.* for every message of an agent
+forward = ["Researcher", "kb"]               # remote agents and http(s) tools that receive the caller's token
+cache_seconds = 30                           # 0 to 300, default 0: remember an ACCEPTED token this long
+timeout_seconds = 5                          # 1 to 60, default 5: the validator's time limit

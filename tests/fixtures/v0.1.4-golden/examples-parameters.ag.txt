@@ -1,0 +1,4 @@
+exit: 0
+--- stdout
+No problems found in parameters.ag (1 agent).
+--- stderr

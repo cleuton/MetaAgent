@@ -1,0 +1,7 @@
+agent Weather
+  goal "Answer questions about the weather"
+  tool weather from mcp "npx -y weather-mcp"
+  accepts ask city
+  on ask
+    forecast = weather.forecast city: city
+    reply "In {city} it will be {forecast.summary}"

@@ -5,6 +5,8 @@
 provider = "anthropic"
 model = "claude-sonnet-5-5"          # mude só esta linha para usar outro modelo (os dois agentes que pensam seguem)
 api_key_env = "ANTHROPIC_API_KEY"    # o NOME da variável que guarda a chave, nunca a chave em si
+#provider = "openai"
+#model = "gpt-5.6-terra"
 
 [runtime]
 timeout_seconds = 180                # ler 9 currículos exige vários passos com as ferramentas

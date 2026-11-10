@@ -1,0 +1,7 @@
+exit: 1
+--- stdout
+--- stderr
+Problem on line 6 of multiline.ag: this agent needs a language model to think, and none is set up
+  6 |     reply think """You are a technical recruiter.
+    |           ^
+Fix: run `metagente new` to create a metagente.toml, or add an [llm] section to it (see the tutorial)

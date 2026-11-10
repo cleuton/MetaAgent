@@ -1,0 +1,6 @@
+agent Asker
+  goal "Ask the Facts tool"
+  tool kb from mcp "http://127.0.0.1:9000/mcp"
+  accepts ask topic
+  on ask
+    reply kb.Facts.lookup topic: topic
