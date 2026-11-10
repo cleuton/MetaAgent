@@ -109,10 +109,17 @@ fn the_sample_is_small_and_commits_no_token() {
     }
     let validator = std::fs::read_to_string(root.join("validator.py")).unwrap();
     assert!(validator.lines().count() < 20);
-    assert!(
-        !root.join("valid-tokens.txt").exists(),
-        "valid-tokens.txt is made by the reader"
-    );
+    // the reader may have made valid-tokens.txt (git-ignored), but it must never be tracked
+    if let Ok(out) = std::process::Command::new("git")
+        .args(["ls-files", "--", "valid-tokens.txt"])
+        .current_dir(&root)
+        .output()
+    {
+        assert!(
+            out.stdout.is_empty(),
+            "valid-tokens.txt is made by the reader and must not be tracked"
+        );
+    }
     assert!(
         std::fs::read_to_string(root.join(".gitignore"))
             .unwrap()

@@ -306,15 +306,26 @@ fn the_sample_does_not_commit_a_key_and_says_so() {
         "{}",
         gitignore
     );
-    assert!(
-        !sample().join("certs").exists(),
-        "certs/ must not exist in the repository"
-    );
+    // certs/ may exist on a reader's computer (the README makes it), but git must ignore it and track nothing in it
+    let tracked = std::process::Command::new("git")
+        .args(["ls-files", "--", "certs"])
+        .current_dir(sample())
+        .output();
+    if let Ok(out) = tracked {
+        assert!(
+            out.stdout.is_empty(),
+            "certs/ must not be tracked by git: {}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+    }
     let mut stack = vec![sample()];
     while let Some(dir) = stack.pop() {
         for entry in std::fs::read_dir(dir).unwrap().flatten() {
             let path = entry.path();
             if path.is_dir() {
+                if path.file_name().is_some_and(|n| n == "certs") {
+                    continue; // git-ignored, made by the reader
+                }
                 stack.push(path);
             } else if let Ok(text) = std::fs::read_to_string(&path) {
                 assert!(

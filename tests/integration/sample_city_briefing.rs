@@ -1,4 +1,4 @@
-//! The City Briefing sample (samples/city-briefing) run offline: a scripted model instead of Claude,
+//! The City Briefing sample (multi-agent-samples/city-briefing) run offline: a scripted model instead of Claude,
 //! a fake MCP server instead of `uvx mcp-server-fetch`, and the real sample files.
 
 use crate::common::a2a;
@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub const TEST_KEY: &str = "MG_SAMPLE_TEST_KEY";
 
 pub fn sample_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/city-briefing")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("multi-agent-samples/city-briefing")
 }
 
 /// Copies the sample into `dir`, changing only the addresses that point at real services:
@@ -635,7 +635,7 @@ fn the_sample_has_all_its_files_and_the_readme_covers_everything() {
     ] {
         assert!(
             sample_dir().join(file).is_file(),
-            "samples/city-briefing/{} is missing",
+            "multi-agent-samples/city-briefing/{} is missing",
             file
         );
     }
