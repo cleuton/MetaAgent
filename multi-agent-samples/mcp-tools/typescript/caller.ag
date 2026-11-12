@@ -1,0 +1,13 @@
+# Sends vectors to the Vectors agent. `metagente run` can only send text, so the lists are written here.
+agent Caller
+  goal "Send vectors to the Vectors agent and show what comes back"
+  link Vectors
+  accepts go
+  accepts oops
+  on go
+    m = Vectors.average values: [2, 4, 4, 4, 5, 5, 7, 9]
+    d = Vectors.similarity a: [1, 2, 3] b: [4, 5, 6]
+    s = Vectors.double values: [1, 2, 3]
+    reply "mean {m}, dot {d}, doubled {s}"
+  on oops
+    reply Vectors.similarity a: [1, 2] b: [1]

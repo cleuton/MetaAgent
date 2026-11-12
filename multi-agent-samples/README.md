@@ -9,6 +9,7 @@ on its own; the README inside says exactly how.
 | [recruiter](metagente-demo-recrutador/) | 3 agents selecting candidates for a job |
 | [two-models](two-models/) | One agent, two language models (0.1.5): a fast Anthropic model rewrites the question and an OpenAI model answers. Needs two keys. |
 | [https-chain](https-chain/) | An agent calls an agent, which calls a tool, all over **https** with a self-signed certificate (0.1.3). No model key needed. |
+| [mcp-tools](mcp-tools/) | The same two agents using a tool written in Python, TypeScript, Go or Java, and a tool that reads a database. No model key needed. |
 
 To start, build Metagente once from the project folder (`cargo build --release`), then open the
 sample's README.

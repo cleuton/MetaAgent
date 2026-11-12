@@ -1,0 +1,12 @@
+# Reads orders from a database through a tool. The database is the business of the tool, not of Metagente.
+agent Shop
+  goal "Answer questions about the orders in a small database"
+  tool shop from mcp @parameters.shop_command
+  accepts items customer        # the name of a customer
+  accepts total customer        # the name of a customer
+  on items
+    r = shop.orders_of customer: customer
+    reply r.result
+  on total
+    r = shop.total_items customer: customer
+    reply r.result

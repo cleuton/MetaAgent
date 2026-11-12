@@ -1,0 +1,16 @@
+# Does simple vector math with a tool. Which program is the tool, and in which language, is in metagente.toml.
+agent Vectors
+  goal "Do simple vector math with a tool written in another language"
+  tool calc from mcp @parameters.calc_command
+  accepts average values        # a list of numbers
+  accepts similarity a b        # two lists of numbers of the same size
+  accepts double values         # a list of numbers
+  on average
+    r = calc.mean values: values
+    reply r.result
+  on similarity
+    r = calc.dot a: a b: b
+    reply r.result
+  on double
+    r = calc.scale values: values factor: 2
+    reply r.result

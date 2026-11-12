@@ -1,0 +1,11 @@
+# Made on your computer when you build and run the examples. Never committed (see README.md).
+.venv/
+node_modules/
+dist/
+target/
+calc-server
+calc-server.exe
+*.jar
+shop.db
+__pycache__/
+*.pyc

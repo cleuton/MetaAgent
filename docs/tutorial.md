@@ -132,6 +132,8 @@ Tool names from other programs may contain dashes or dots, and you write them as
 
 (The `weather-mcp` package above is only an example. Use any MCP server you have.)
 
+To write an MCP tool of your own, in Python, TypeScript, Go or Java, see the [guide to writing tools](mcp-tools-guide.md).
+
 ## 7. Let the agent think
 
 Some jobs need a language model. Add `think`:

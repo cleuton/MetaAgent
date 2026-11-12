@@ -1,0 +1,7 @@
+# Which program is the tool "calc". The agents do not know the language; change this line to change it.
+[version]
+minimum = "0.1.5"
+
+[parameters]
+calc_command = ".venv/bin/python server.py"
+# Windows: calc_command = '.venv\Scripts\python.exe server.py'

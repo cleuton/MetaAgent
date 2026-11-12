@@ -4,6 +4,12 @@ All notable changes to Metagente are recorded here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+A guide and a sample were added: `docs/mcp-tools-guide.md` and `multi-agent-samples/mcp-tools/` show how to write an MCP
+tool in Python, TypeScript, Go and Java (the same example in each), a tool that reads a database, and `smoke.py`, a
+program that tests a tool without an agent. Nothing in the program changed.
+
 ## v0.1.5 - 2026-11-10
 
 Several language models for `think`. Everything that worked in 0.1.4 works the same way. The only new text in the

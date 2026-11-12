@@ -132,6 +132,8 @@ counting), no way to add to a list, no functions of your own, and no way to catc
 on. To count or calculate, use a tool: an MCP server that does math, a linked agent written for the
 purpose, or `think`.
 
+To write that tool yourself, in Python, TypeScript, Go or Java, see the [guide to writing tools](mcp-tools-guide.md).
+
 ## Where results go
 
 - `reply` sends the answer back to whoever asked (the terminal, another agent, an A2A client).

@@ -520,6 +520,7 @@ agent over A2A, and the Researcher reads a web page through an MCP tool. Both us
 | Two models in one agent: a fast Anthropic model and an OpenAI model, break it on purpose (new in 0.1.5) | [multi-agent-samples/two-models](multi-agent-samples/two-models/README.md) |
 | Bearer tokens end to end: three agents, one token, break it on purpose (new in 0.1.4) | [multi-agent-samples/auth-chain](multi-agent-samples/auth-chain/README.md) |
 | Authentication guide: what Metagente does and does not do, the validator, the cache, the checklist (new in 0.1.4) | [docs/authentication-guide.md](docs/authentication-guide.md) |
+| Write your own tools in Python, TypeScript, Go and Java, and plug them into an agent with one line; a tool that reads a database | [docs/mcp-tools-guide.md](docs/mcp-tools-guide.md) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Roadmap

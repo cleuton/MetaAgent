@@ -1,0 +1,7 @@
+# Which program is the tool "shop". The agent does not know the language; change this line to change it.
+[version]
+minimum = "0.1.5"
+
+[parameters]
+shop_command = ".venv/bin/python server.py"
+# Windows: shop_command = '.venv\Scripts\python.exe server.py'
