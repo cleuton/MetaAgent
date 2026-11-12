@@ -55,6 +55,24 @@ cargo build --release
 target/release/metagente run examples/clock.ag now
 ```
 
+## Write your own tools in Python, TypeScript, Go and Java
+
+An agent can call a **tool**: a small program, written in any language, that does one job. Metagente has no database,
+no spreadsheets and no machine learning; your tool has whatever its language has. You plug it in with one line:
+
+```text
+tool calc from mcp @parameters.calc_command
+```
+
+**[Read the interoperability guide: tools in Python, TypeScript, Go and Java](docs/mcp-tools-guide.md)**
+
+- The same example written four times, and **the same two agents** (byte for byte) in every language. Change one line of
+  `metagente.toml` and the agent uses a tool in another language.
+- A tool that reads a database.
+- `smoke.py`, a program that tests a tool before any agent uses it.
+- "Break it on purpose": what you see when something goes wrong, and a table of common problems.
+- Every command and output was run for real. The files are in [multi-agent-samples/mcp-tools](multi-agent-samples/mcp-tools/README.md).
+
 ## Why Metagente?
 
 Frameworks such as LangChain or CrewAI are powerful, but they assume you are a programmer working inside a
@@ -77,6 +95,7 @@ non-programmers a way to build agents, Metagente is for you.
 
 ## What works today
 
+- **Tools in Python, TypeScript, Go and Java:** write a tool in your language and plug it into an agent with one line. See the [interoperability guide](docs/mcp-tools-guide.md).
 - **Language and interpreter:** goals, tools, inputs, replies, `if`, loops and results.
 - **Built in tools and MCP tools:** plug in any MCP server.
 - **Safe agents:** each agent declares which folders, environment variables and other agents it may use.
@@ -520,7 +539,8 @@ agent over A2A, and the Researcher reads a web page through an MCP tool. Both us
 | Two models in one agent: a fast Anthropic model and an OpenAI model, break it on purpose (new in 0.1.5) | [multi-agent-samples/two-models](multi-agent-samples/two-models/README.md) |
 | Bearer tokens end to end: three agents, one token, break it on purpose (new in 0.1.4) | [multi-agent-samples/auth-chain](multi-agent-samples/auth-chain/README.md) |
 | Authentication guide: what Metagente does and does not do, the validator, the cache, the checklist (new in 0.1.4) | [docs/authentication-guide.md](docs/authentication-guide.md) |
-| Write your own tools in Python, TypeScript, Go and Java, and plug them into an agent with one line; a tool that reads a database | [docs/mcp-tools-guide.md](docs/mcp-tools-guide.md) |
+| **Interoperability guide:** write your own tools in Python, TypeScript, Go and Java, and plug them into an agent with one line; a tool that reads a database | [docs/mcp-tools-guide.md](docs/mcp-tools-guide.md) |
+| The tools sample: the same tool in four languages, the same two agents, a database tool | [multi-agent-samples/mcp-tools](multi-agent-samples/mcp-tools/README.md) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Roadmap
