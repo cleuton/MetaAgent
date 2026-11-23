@@ -1,3 +1,5 @@
+# THIS REPO CHANGED! DON'T USE THIS REPO! SEE THE NEW REPO [HERE](https://github.com/cleuton/metagente)
+
 # Metagente
 
 **Build AI agents in a few lines, not a few hundred.**
